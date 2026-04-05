@@ -1,0 +1,11 @@
+.env
+*.db
+photos/
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+bot.log
+web.log
+test_receipt.jpg

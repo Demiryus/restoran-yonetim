@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Restaurant Management</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  :root{
+    --green:#22c55e;--red:#ef4444;--blue:#3b82f6;
+    --yellow:#f59e0b;--card:#1a1d2e;--border:#2a2d3e;
+  }
+  header{background:#1a1d2e;border-bottom:1px solid var(--border);
+    padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
+  header h1{font-size:1.2rem;font-weight:700;color:#fff}
+  .header-actions{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+  .period-tabs{display:flex;gap:4px;background:#0f1117;padding:4px;border-radius:10px}
+  .period-tabs a{padding:6px 14px;border-radius:7px;font-size:.82rem;text-decoration:none;color:#888;transition:.2s}
+  .period-tabs a.active{background:var(--blue);color:#fff}
+  .container{max-width:1300px;margin:0 auto;padding:24px}
+  .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+  @media(max-width:900px){.grid-4{grid-template-columns:1fr 1fr}.grid-2{grid-template-columns:1fr}}
+  @media(max-width:500px){.grid-4{grid-template-columns:1fr}}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+  .card h3{font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;color:#888;margin-bottom:8px}
+  .card .value{font-size:1.9rem;font-weight:700;line-height:1}
+  .card .sub{font-size:.8rem;color:#666;margin-top:6px}
+  .card.green .value{color:var(--green)}
+  .card.red   .value{color:var(--red)}
+  .card.blue  .value{color:var(--blue)}
+  .card.yellow .value{color:var(--yellow)}
+  .section-title{font-size:1rem;font-weight:600;color:#ccc;margin-bottom:14px;
+    display:flex;align-items:center;justify-content:space-between}
+  .tbl{width:100%;border-collapse:collapse;font-size:.875rem}
+  .tbl th{text-align:left;padding:10px 12px;color:#888;font-weight:500;
+    font-size:.75rem;border-bottom:1px solid var(--border);text-transform:uppercase}
+  .tbl td{padding:10px 12px;border-bottom:1px solid #1e2133}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:rgba(255,255,255,.03)}
+  .tbl tr.clickable:hover td{cursor:pointer}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:600}
+  .badge.expense{background:#7f1d1d;color:#fca5a5}
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:100;
+    align-items:center;justify-content:center}
+  .modal-backdrop.open{display:flex}
+  .modal{background:#1a1d2e;border:1px solid var(--border);border-radius:14px;
+    padding:28px;min-width:340px;max-width:95vw}
+  .modal h2{font-size:1.1rem;margin-bottom:18px;color:#fff}
+  .form-group{margin-bottom:14px}
+  .form-group label{display:block;font-size:.8rem;color:#aaa;margin-bottom:5px}
+  .form-group input,.form-group select{
+    width:100%;background:#0f1117;border:1px solid var(--border);
+    border-radius:8px;padding:9px 12px;color:#e0e0e0;font-size:.9rem;outline:none}
+  .form-group input:focus{border-color:var(--blue)}
+  .btn{padding:9px 18px;border-radius:8px;border:none;cursor:pointer;
+    font-size:.875rem;font-weight:600;transition:.2s}
+  .btn-primary{background:var(--blue);color:#fff}
+  .btn-primary:hover{background:#2563eb}
+  .btn-success{background:#16a34a;color:#fff}
+  .btn-success:hover{background:#15803d}
+  .btn-warning{background:#b45309;color:#fef3c7;font-size:.75rem;padding:5px 10px}
+  .btn-danger{background:#7f1d1d;color:#fca5a5;font-size:.75rem;padding:5px 10px}
+  .btn-ghost{background:transparent;color:#888;border:1px solid var(--border)}
+  .btn-ghost:hover{color:#fff}
+  .btn-row{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
+  .btn-actions{display:flex;gap:6px}
+  .warn-dot{display:inline-block;width:7px;height:7px;background:var(--yellow);
+    border-radius:50%;margin-right:6px;animation:pulse 1.5s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+  .alert{background:#1c1200;border:1px solid #78350f;border-radius:10px;
+    padding:14px 16px;margin-bottom:20px;display:flex;align-items:center;gap:10px;
+    color:#fcd34d;font-size:.875rem}
+  .tabs{display:flex;gap:4px;border-bottom:1px solid var(--border);margin-bottom:20px}
+  .tab{padding:10px 18px;font-size:.875rem;cursor:pointer;border-bottom:2px solid transparent;
+    color:#888;transition:.2s;background:none;border-left:none;border-right:none;border-top:none}
+  .tab.active{color:var(--blue);border-bottom-color:var(--blue)}
+
+  /* ── MAIN LAYOUT ── */
+  .main-grid{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:24px}
+  @media(max-width:1000px){.main-grid{grid-template-columns:1fr}}
+
+  /* ── RECEIPT ROWS ── */
+  .receipt-row{border-bottom:1px solid #1e2133;cursor:pointer}
+  .receipt-row:last-child{border-bottom:none}
+  .receipt-header{display:grid;grid-template-columns:40px 1fr auto auto 32px;
+    gap:10px;padding:12px;align-items:center;transition:.15s}
+  .receipt-header:hover{background:rgba(255,255,255,.03)}
+  .receipt-id{font-size:.75rem;color:#444;font-weight:600}
+  .receipt-store{font-weight:600;color:#ddd;font-size:.9rem}
+  .receipt-date{font-size:.75rem;color:#555}
+  .receipt-amount{font-weight:700;color:#ef4444;white-space:nowrap;font-size:.95rem}
+  .receipt-toggle{color:#555;font-size:.8rem;transition:transform .2s;text-align:center}
+  .receipt-toggle.open{transform:rotate(180deg)}
+  .receipt-items{display:none;padding:0 12px 12px 52px}
+  .receipt-items.open{display:block}
+  .item-row{display:flex;justify-content:space-between;padding:4px 0;
+    border-bottom:1px solid #13162a;font-size:.82rem}
+  .item-row:last-child{border-bottom:none}
+  .item-name{color:#aaa}
+  .item-meta{color:#666;font-size:.78rem}
+  .item-price{color:#888;font-weight:600}
+
+  /* ── STOCK PANEL ── */
+  .stock-panel{display:flex;flex-direction:column;gap:0}
+  .stock-panel-header{display:flex;justify-content:space-between;align-items:center;
+    margin-bottom:14px}
+  .stock-list-item{display:flex;align-items:center;gap:12px;padding:10px 0;
+    border-bottom:1px solid #1e2133}
+  .stock-list-item:last-child{border-bottom:none}
+  .stock-list-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;
+    justify-content:center;font-size:1rem;flex-shrink:0}
+  .stock-list-icon.ok{background:rgba(59,130,246,.15)}
+  .stock-list-icon.low{background:rgba(245,158,11,.15)}
+  .stock-list-icon.critical{background:rgba(239,68,68,.15)}
+  .stock-list-info{flex:1;min-width:0}
+  .stock-list-name{font-size:.875rem;font-weight:600;color:#ddd;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stock-list-cat{font-size:.72rem;color:#555;text-transform:uppercase}
+  .stock-list-right{text-align:right;flex-shrink:0}
+  .stock-list-qty{font-size:1.1rem;font-weight:700}
+  .stock-list-qty.ok{color:var(--blue)}
+  .stock-list-qty.low{color:var(--yellow)}
+  .stock-list-qty.critical{color:var(--red)}
+  .stock-list-unit{font-size:.72rem;color:#555}
+  .stock-list-bar{height:3px;background:#1e2133;border-radius:2px;margin-top:6px}
+  .stock-list-bar-fill{height:100%;border-radius:2px}
+  .stock-list-bar-fill.ok{background:var(--blue)}
+  .stock-list-bar-fill.low{background:var(--yellow)}
+  .stock-list-bar-fill.critical{background:var(--red)}
+  .stock-del-btn{opacity:0;transition:.15s;flex-shrink:0}
+  .stock-list-item:hover .stock-del-btn{opacity:1}
+
+  /* ── STOCK CARDS ── */
+  .stock-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+  .stock-card{background:#13162a;border:1px solid var(--border);border-radius:10px;padding:14px}
+  .stock-card.low{border-color:#78350f}
+  .stock-card.critical{border-color:var(--red)}
+  .stock-card-name{font-weight:600;font-size:.95rem;color:#e0e0e0;margin-bottom:2px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stock-card-cat{font-size:.72rem;color:#555;text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px}
+  .stock-qty-row{display:flex;align-items:baseline;gap:6px;margin-bottom:8px}
+  .stock-qty-val{font-size:1.6rem;font-weight:700;line-height:1}
+  .stock-qty-val.ok{color:var(--blue)}
+  .stock-qty-val.low{color:var(--yellow)}
+  .stock-qty-val.critical{color:var(--red)}
+  .stock-qty-unit{font-size:.8rem;color:#666}
+  .stock-bar-bg{background:#0f1117;border-radius:4px;height:6px;overflow:hidden;margin-bottom:8px}
+  .stock-bar{height:100%;border-radius:4px;transition:width .3s}
+  .stock-bar.ok{background:var(--blue)}
+  .stock-bar.low{background:var(--yellow)}
+  .stock-bar.critical{background:var(--red)}
+  .stock-card-footer{display:flex;justify-content:space-between;align-items:center;margin-top:4px}
+  .stock-updated{font-size:.7rem;color:#444}
+  .stock-min{font-size:.72rem;color:#555}
+
+  /* ── STOCK FILTER TABS ── */
+  .cat-filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px}
+  .cat-btn{padding:4px 12px;border-radius:20px;border:1px solid var(--border);
+    background:transparent;color:#888;font-size:.75rem;cursor:pointer;transition:.2s}
+  .cat-btn.active{background:var(--blue);border-color:var(--blue);color:#fff}
+  .cat-btn:hover:not(.active){color:#fff}
+
+  /* ── STOCK VALUE ── */
+  .stock-value-tag{font-size:.72rem;color:#555;background:#13162a;
+    padding:2px 8px;border-radius:10px;margin-left:6px}
+
+  ::-webkit-scrollbar{width:6px;height:6px}
+  ::-webkit-scrollbar-track{background:#0f1117}
+  ::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div style="font-size:1.1rem;font-weight:700;color:#fff">Restaurant Management</div>
+  <div class="period-tabs">
+    <a href="/?period=today" class="{% if period=='today' %}active{% endif %}">Today</a>
+    <a href="/?period=week"  class="{% if period=='week'  %}active{% endif %}">7 Days</a>
+    <a href="/?period=month" class="{% if period=='month' %}active{% endif %}">This Month</a>
+    <a href="/?period=all"   class="{% if period=='all'   %}active{% endif %}">All Time</a>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-success" onclick="openModal('incomeModal')">+ Add Income</button>
+    <button class="btn btn-primary" onclick="openModal('stockAddModal')">+ Add Stock</button>
+    <button class="btn btn-warning" style="padding:9px 18px" onclick="openModal('stockUseModal')">- Use Stock</button>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- LOW STOCK ALERT -->
+  {% if dusuk_stok %}
+  <div class="alert">
+    <span>⚠️</span>
+    <span><strong>Low Stock Alert:</strong>
+      {% for s in dusuk_stok %}{{ s.item_name }} ({{ s.current_quantity }} {{ s.unit or '' }}){% if not loop.last %}, {% endif %}{% endfor %}
+    </span>
+  </div>
+  {% endif %}
+
+  <!-- KPI CARDS -->
+  <div class="grid-4">
+    <div class="card green">
+      <h3>Total Income</h3>
+      <div class="value">${{ "%.2f"|format(total_gelir) }}</div>
+      <div class="sub">{{ label }}</div>
+    </div>
+    <div class="card red">
+      <h3>Total Expenses</h3>
+      <div class="value">${{ "%.2f"|format(total_gider) }}</div>
+      <div class="sub">{{ n_fis }} receipt(s)</div>
+    </div>
+    <div class="card {% if net >= 0 %}blue{% else %}red{% endif %}">
+      <h3>Net Profit / Loss</h3>
+      <div class="value">{% if net >= 0 %}+{% endif %}${{ "%.2f"|format(net) }}</div>
+      <div class="sub">{% if net >= 0 %}Profitable{% else %}In loss{% endif %}</div>
+    </div>
+    <div class="card yellow">
+      <h3>Stock Items</h3>
+      <div class="value">{{ stok|length }}</div>
+      <div class="sub">
+        {% if dusuk_stok %}⚠ {{ dusuk_stok|length }} low{% else %}All sufficient{% endif %}
+        {% if total_stok_degeri > 0 %} · ~${{ "%.0f"|format(total_stok_degeri) }} value{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- CHARTS -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="section-title">7-Day Trend</div>
+      <canvas id="trendChart" height="200"></canvas>
+    </div>
+    <div class="card">
+      <div class="section-title">Expense by Category</div>
+      <canvas id="catChart" height="200"></canvas>
+    </div>
+  </div>
+
+  <!-- MAIN 2-COLUMN LAYOUT -->
+  <div class="main-grid">
+
+    <!-- LEFT: RECENT RECEIPTS -->
+    <div class="card">
+      <div class="section-title">
+        <span>Recent Receipts</span>
+        <span style="font-size:.75rem;color:#555;font-weight:400">click to expand items</span>
+      </div>
+      {% if son_fisler %}
+      <div>
+        {% for f in son_fisler %}
+        {% set items = fis_items.get(f.id, []) %}
+        <div class="receipt-row">
+          <div class="receipt-header" onclick="toggleReceipt({{ f.id }})">
+            <span class="receipt-id">#{{ f.id }}</span>
+            <div>
+              <div class="receipt-store">{{ f.store_name or '—' }}</div>
+              <div class="receipt-date">{{ f.receipt_date or f.created_at[:10] }}</div>
+            </div>
+            <span class="receipt-amount">-${{ "%.2f"|format(f.total_amount) }}</span>
+            <form method="post" action="/fis/{{ f.id }}/sil" onclick="event.stopPropagation()"
+                  onsubmit="return confirm('Delete this receipt?')">
+              <button class="btn btn-danger">✕</button>
+            </form>
+            <span class="receipt-toggle" id="toggle-{{ f.id }}">▼</span>
+          </div>
+          <div class="receipt-items" id="items-{{ f.id }}">
+            {% if items %}
+              {% for i in items %}
+              <div class="item-row">
+                <span class="item-name">{{ i.item_name or '?' }}</span>
+                <span class="item-meta">{{ "%.2f"|format(i.quantity)|replace('.00','') }} {{ i.unit or 'pcs' }}</span>
+                <span class="item-price">${{ "%.2f"|format(i.total_price) }}</span>
+              </div>
+              {% endfor %}
+              <div style="text-align:right;margin-top:8px">
+                <a href="/fis/{{ f.id }}" style="font-size:.78rem;color:#3b82f6;text-decoration:none">View full receipt →</a>
+              </div>
+            {% else %}
+              <p style="color:#555;font-size:.82rem;padding:4px 0">No items recorded.</p>
+            {% endif %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+        <p style="color:#555;text-align:center;padding:40px">
+          No receipts yet. Send a photo via the Telegram bot.
+        </p>
+      {% endif %}
+    </div>
+
+    <!-- RIGHT: STOCK INVENTORY -->
+    <div class="card">
+      <div class="section-title">
+        <span>Stock Inventory</span>
+        <button class="btn btn-primary" style="font-size:.75rem;padding:5px 12px"
+                onclick="openModal('stockAddModal')">+ Add</button>
+      </div>
+
+      {% if stok %}
+      <!-- Category filter buttons -->
+      {% set cats = stok | map(attribute='category') | list | unique | list %}
+      <div class="cat-filters">
+        <button class="cat-btn active" onclick="filterCat('all', this)">All</button>
+        {% for cat in cats %}
+        <button class="cat-btn" onclick="filterCat('{{ cat or 'other' }}', this)">{{ cat or 'other' }}</button>
+        {% endfor %}
+      </div>
+
+      <div id="stock-list">
+        {% for s in stok %}
+        {% set has_min = s.min_quantity and s.min_quantity > 0 %}
+        {% set pct = ((s.current_quantity / s.min_quantity) * 100)|int if has_min else 100 %}
+        {% set status = 'critical' if (has_min and s.current_quantity <= 0) else ('low' if (has_min and s.current_quantity <= s.min_quantity) else 'ok') %}
+        {% set bar_pct = [pct, 100]|min %}
+        {% set icon = '🥩' if s.category == 'meat' else ('🥦' if s.category == 'vegetable' else ('🍞' if s.category == 'bread' else ('🥛' if s.category == 'dairy' else ('🍎' if s.category == 'fruit' else ('🧴' if s.category == 'cleaning' else '📦'))))) %}
+        {% set est_val = (s.current_quantity or 0) * (s.last_price or 0) %}
+        <div class="stock-list-item" data-cat="{{ s.category or 'other' }}">
+          <div class="stock-list-icon {{ status }}">{{ icon }}</div>
+          <div class="stock-list-info">
+            <div class="stock-list-name">
+              {% if status != 'ok' %}<span class="warn-dot"></span>{% endif %}{{ s.item_name }}
+              {% if est_val > 0 %}
+              <span class="stock-value-tag">${{ "%.2f"|format(est_val) }}</span>
+              {% endif %}
+            </div>
+            <div class="stock-list-cat">
+              {{ s.category or 'other' }}
+              {% if s.last_price %} · ${{ "%.2f"|format(s.last_price) }}/{{ s.unit or 'unit' }}{% endif %}
+              · {% if s.days_ago == 0 %}today{% elif s.days_ago == 1 %}yesterday{% else %}{{ s.days_ago }}d ago{% endif %}
+            </div>
+            {% if has_min %}
+            <div class="stock-list-bar">
+              <div class="stock-list-bar-fill {{ status }}" style="width:{{ bar_pct }}%"></div>
+            </div>
+            {% endif %}
+          </div>
+          <div class="stock-list-right">
+            <div class="stock-list-qty {{ status }}">
+              {{ "%.1f"|format(s.current_quantity) }}
+              <span style="font-size:.75rem;font-weight:400;color:#666">{{ s.unit or 'pcs' }}</span>
+            </div>
+            {% if has_min %}
+            <div class="stock-list-unit">min {{ s.min_quantity }}</div>
+            {% endif %}
+          </div>
+          <form method="post" action="/stok/{{ s.item_name }}/sil" class="stock-del-btn"
+                onsubmit="return confirm('Delete {{ s.item_name }}?')">
+            <button class="btn btn-danger">✕</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+        <p style="color:#555;text-align:center;padding:40px">
+          Stock will appear here after uploading receipts.
+        </p>
+      {% endif %}
+    </div>
+
+  </div><!-- /main-grid -->
+
+  <!-- INCOME ENTRIES -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="section-title">
+      <span>Income Entries</span>
+      <button class="btn btn-success" style="font-size:.75rem;padding:5px 12px"
+              onclick="openModal('incomeModal')">+ Add</button>
+    </div>
+    {% if son_gelirler %}
+    <table class="tbl">
+      <thead>
+        <tr><th>#</th><th>Description</th><th>Date</th><th>Amount</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for g in son_gelirler %}
+        <tr>
+          <td style="color:#555">{{ g.id }}</td>
+          <td>{{ g.description or '—' }}</td>
+          <td style="color:#888">{{ g.income_date }}</td>
+          <td style="font-weight:700;color:#22c55e">${{ "%.2f"|format(g.amount) }}</td>
+          <td>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-primary" style="font-size:.72rem;padding:4px 10px"
+                onclick="openEditIncome({{ g.id }}, {{ g.amount }}, '{{ (g.description or '')|replace("'", "\\'") }}')">
+                Edit
+              </button>
+              <form method="post" action="/gelir/{{ g.id }}/sil"
+                    onsubmit="return confirm('Delete this income entry?')">
+                <button class="btn btn-danger">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p style="color:#555;text-align:center;padding:30px">No income entries for this period.</p>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- INCOME MODAL -->
+<div class="modal-backdrop" id="incomeModal">
+  <div class="modal">
+    <h2>Add Income</h2>
+    <form method="post" action="/gelir/ekle">
+      <div class="form-group">
+        <label>Amount (CAD)</label>
+        <input type="number" name="amount" step="0.01" min="0" placeholder="0.00" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" placeholder="Lunch service, Evening cash...">
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="income_date" value="{{ ''|today_date }}">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('incomeModal')">Cancel</button>
+        <button type="submit" class="btn btn-success">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ADD STOCK MODAL -->
+<div class="modal-backdrop" id="stockAddModal">
+  <div class="modal">
+    <h2>Add / Update Stock</h2>
+    <form method="post" action="/stok/guncelle">
+      <div class="form-group">
+        <label>Item Name</label>
+        <input type="text" name="item_name" placeholder="Chicken, Beef, Bread..." required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Quantity</label>
+        <input type="number" name="quantity" step="0.01" min="0" placeholder="0" required>
+      </div>
+      <div class="form-group">
+        <label>Unit</label>
+        <input type="text" name="unit" placeholder="kg, pcs, litre...">
+      </div>
+      <div class="form-group">
+        <label>Min. Alert Level</label>
+        <input type="number" name="min_quantity" step="0.01" min="0" placeholder="0 = no alert">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('stockAddModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT INCOME MODAL -->
+<div class="modal-backdrop" id="editIncomeModal">
+  <div class="modal">
+    <h2>Edit Income</h2>
+    <form method="post" id="editIncomeForm" action="">
+      <div class="form-group">
+        <label>Amount (CAD)</label>
+        <input type="number" name="amount" id="editIncomeAmount" step="0.01" min="0" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" id="editIncomeDesc">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('editIncomeModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- USE STOCK MODAL -->
+<div class="modal-backdrop" id="stockUseModal">
+  <div class="modal">
+    <h2>Use Stock</h2>
+    <form method="post" action="/stok/kullan">
+      <div class="form-group">
+        <label>Item Name</label>
+        <input type="text" name="item_name" list="stok-list" placeholder="Chicken, Beef..." required autofocus>
+        <datalist id="stok-list">
+          {% for s in stok %}
+          <option value="{{ s.item_name }}">{{ s.current_quantity }} {{ s.unit or '' }}</option>
+          {% endfor %}
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label>Amount Used</label>
+        <input type="number" name="quantity" step="0.01" min="0.01" placeholder="0" required>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('stockUseModal')">Cancel</button>
+        <button type="submit" class="btn btn-warning" style="padding:9px 18px;font-size:.875rem">Deduct</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id){ document.getElementById(id).classList.add('open') }
+function closeModal(id){ document.getElementById(id).classList.remove('open') }
+document.querySelectorAll('.modal-backdrop').forEach(m =>
+  m.addEventListener('click', e => { if(e.target===m) m.classList.remove('open') }))
+
+function filterCat(cat, btn){
+  document.querySelectorAll('.cat-btn').forEach(b => b.classList.remove('active'))
+  btn.classList.add('active')
+  document.querySelectorAll('#stock-list .stock-list-item').forEach(item => {
+    item.style.display = (cat === 'all' || item.dataset.cat === cat) ? 'flex' : 'none'
+  })
+}
+
+function openEditIncome(id, amount, desc){
+  document.getElementById('editIncomeForm').action = '/gelir/'+id+'/duzenle'
+  document.getElementById('editIncomeAmount').value = amount
+  document.getElementById('editIncomeDesc').value = desc
+  openModal('editIncomeModal')
+}
+
+function toggleReceipt(id){
+  const items = document.getElementById('items-'+id)
+  const toggle = document.getElementById('toggle-'+id)
+  const open = items.classList.toggle('open')
+  toggle.classList.toggle('open', open)
+}
+
+const trendData = {{ trend_json|safe }};
+new Chart(document.getElementById('trendChart'), {
+  type: 'line',
+  data: {
+    labels: trendData.map(d=>d.tarih),
+    datasets: [
+      { label:'Income', data:trendData.map(d=>d.gelir),
+        borderColor:'#22c55e', backgroundColor:'rgba(34,197,94,.1)', tension:.4, fill:true },
+      { label:'Expense', data:trendData.map(d=>d.gider),
+        borderColor:'#ef4444', backgroundColor:'rgba(239,68,68,.1)', tension:.4, fill:true },
+    ]
+  },
+  options:{
+    plugins:{legend:{labels:{color:'#888',font:{size:11}}}},
+    scales:{
+      x:{ticks:{color:'#555'},grid:{color:'#1e2133'}},
+      y:{ticks:{color:'#555'},grid:{color:'#1e2133'}}
+    },
+    responsive:true, maintainAspectRatio:true
+  }
+});
+
+const catData = {{ kategori_json|safe }};
+if(catData.length){
+  const palette = ['#3b82f6','#22c55e','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
+  new Chart(document.getElementById('catChart'), {
+    type: 'doughnut',
+    data: {
+      labels: catData.map(d=>d.category),
+      datasets:[{ data:catData.map(d=>d.toplam),
+        backgroundColor:palette, borderColor:'#1a1d2e', borderWidth:2 }]
+    },
+    options:{
+      plugins:{legend:{position:'right',labels:{color:'#888',font:{size:11},boxWidth:12}}},
+      responsive:true, maintainAspectRatio:true
+    }
+  });
+} else {
+  document.getElementById('catChart').parentElement.innerHTML +=
+    '<p style="color:#555;text-align:center;padding:30px 0">No data yet</p>';
+}
+
+</script>
+</body>
+</html>
