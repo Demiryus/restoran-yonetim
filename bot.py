@@ -26,7 +26,7 @@ load_dotenv()
 
 BOT_TOKEN  = os.getenv("TELEGRAM_BOT_TOKEN", "")
 WEB_URL    = os.getenv("WEB_URL", "http://localhost:8000")
-PHOTOS_DIR = "photos"
+PHOTOS_DIR = os.getenv("PHOTOS_DIR", "photos")
 os.makedirs(PHOTOS_DIR, exist_ok=True)
 
 

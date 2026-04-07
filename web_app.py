@@ -10,10 +10,12 @@ from pathlib import Path
 import json
 from datetime import date, timedelta
 
+import os
 from database import get_db, init_db
 
-PHOTOS_DIR = Path("photos")
-PHOTOS_DIR.mkdir(exist_ok=True)
+# Railway Volume'da kalıcı photos klasörü: PHOTOS_DIR=/data/photos
+PHOTOS_DIR = Path(os.getenv("PHOTOS_DIR", "photos"))
+PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Restoran Yönetim")
 app.mount("/photos", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")

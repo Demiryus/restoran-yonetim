@@ -1,7 +1,13 @@
 import sqlite3
+import os
 from datetime import datetime
+from pathlib import Path
 
-DATABASE_PATH = "restoran.db"
+# Railway Volume: DB_PATH=/data/restoran.db
+# Lokal: restoran.db (proje klasöründe)
+_raw = os.getenv("DB_PATH", "restoran.db")
+DATABASE_PATH = str(Path(_raw))
+Path(DATABASE_PATH).parent.mkdir(parents=True, exist_ok=True)
 
 def get_db():
     conn = sqlite3.connect(DATABASE_PATH)
