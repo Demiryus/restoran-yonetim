@@ -627,6 +627,7 @@ async def receipts_page(
     q: str = "",
     page: int = 1,
     per_page: int = 25,
+    view: str = "list",
     _auth: None = Depends(require_auth),
 ):
     offset = (page - 1) * per_page
@@ -645,11 +646,24 @@ async def receipts_page(
     total_count = scalar(f"SELECT COUNT(*) FROM receipts r {where}", tuple(params))
     total_pages = max(1, (total_count + per_page - 1) // per_page)
 
-    receipts = fetch_all(
-        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.tax_amount, r.currency, r.created_at "
+    receipts_raw = fetch_all(
+        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.tax_amount, r.currency, r.created_at, r.photo_path "
         f"FROM receipts r {where} ORDER BY r.created_at DESC LIMIT ? OFFSET ?",
         tuple(params + [per_page, offset])
     )
+
+    # Attach items only in gallery view (for detail display under each card)
+    receipts = []
+    for r in receipts_raw:
+        d = dict(r)
+        p = Path(d["photo_path"]) if d.get("photo_path") else None
+        d["photo_url"] = f"/photos/{p.name}" if p and p.exists() else None
+        if view == "gallery":
+            d["items"] = fetch_all(
+                "SELECT item_name, category, quantity, unit, total_price FROM receipt_items WHERE receipt_id=? ORDER BY id",
+                (d["id"],)
+            )
+        receipts.append(d)
 
     return templates.TemplateResponse("receipts_list.html", {
         "request": request,
@@ -659,6 +673,7 @@ async def receipts_page(
         "per_page": per_page,
         "total_count": total_count,
         "total_pages": total_pages,
+        "view": view,
     })
 
 

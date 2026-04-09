@@ -9,23 +9,62 @@
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
   :root{--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--card:#1a1d2e;--border:#2a2d3e}
   header{background:var(--card);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
-  .container{max-width:1100px;margin:0 auto;padding:24px}
+  .container{max-width:1200px;margin:0 auto;padding:24px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+
+  /* ── LIST VIEW ── */
   .tbl{width:100%;border-collapse:collapse;font-size:.875rem}
   .tbl th{text-align:left;padding:10px 12px;color:#888;font-weight:500;font-size:.75rem;border-bottom:1px solid var(--border);text-transform:uppercase}
   .tbl td{padding:10px 12px;border-bottom:1px solid #1e2133}
   .tbl tr:last-child td{border-bottom:none}
   .tbl tr:hover td{background:rgba(255,255,255,.03)}
+
+  /* ── GALLERY VIEW ── */
+  .gallery{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:18px}
+  @media(max-width:680px){.gallery{grid-template-columns:1fr}}
+  .receipt-card{background:var(--card);border:1px solid var(--border);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .receipt-card:hover{border-color:#3b82f6;transition:.15s}
+  .receipt-photo{position:relative;background:#0a0c14;cursor:pointer}
+  .receipt-photo img{width:100%;display:block;max-height:260px;object-fit:cover;object-position:top}
+  .receipt-photo .no-photo{height:160px;display:flex;align-items:center;justify-content:center;color:#333;font-size:2.5rem}
+  .receipt-photo .zoom-btn{position:absolute;bottom:8px;right:8px;background:rgba(0,0,0,.7);border:none;color:#fff;border-radius:6px;padding:4px 8px;font-size:.72rem;cursor:pointer;opacity:0;transition:.15s}
+  .receipt-card:hover .zoom-btn{opacity:1}
+  .receipt-body{padding:14px;flex:1;display:flex;flex-direction:column;gap:10px}
+  .receipt-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .receipt-store{font-weight:700;font-size:.95rem;color:#e0e0e0}
+  .receipt-date{font-size:.75rem;color:#555;white-space:nowrap}
+  .receipt-totals{display:flex;gap:12px;align-items:center}
+  .receipt-total{font-size:1.25rem;font-weight:700;color:#ef4444}
+  .receipt-tax{font-size:.78rem;color:#f59e0b;background:rgba(245,158,11,.1);padding:2px 7px;border-radius:8px}
+  /* item list inside card */
+  .receipt-items{border-top:1px solid #1e2133;padding-top:10px}
+  .receipt-items-title{font-size:.68rem;color:#444;text-transform:uppercase;letter-spacing:.05em;margin-bottom:7px}
+  .receipt-item-row{display:flex;justify-content:space-between;align-items:center;padding:3px 0;font-size:.8rem}
+  .receipt-item-name{color:#bbb;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-right:8px}
+  .receipt-item-cat{font-size:.68rem;color:#444;background:#13162a;padding:1px 5px;border-radius:6px;margin-right:6px;flex-shrink:0}
+  .receipt-item-price{color:#888;white-space:nowrap;flex-shrink:0}
+  .more-items{font-size:.75rem;color:#444;margin-top:4px}
+  .receipt-footer{margin-top:auto;padding-top:10px;display:flex;justify-content:space-between;align-items:center}
+
+  /* ── SHARED ── */
   .btn{display:inline-flex;align-items:center;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;font-weight:500;text-decoration:none;color:#fff}
-  .search-bar{display:flex;gap:10px;margin-bottom:20px}
-  .search-bar input{flex:1;background:#1a1d2e;border:1px solid #2a2d3e;color:#e0e0e0;padding:10px 14px;border-radius:8px;font-size:.9rem}
-  .search-bar input:focus{outline:none;border-color:#3b82f6}
-  .search-bar button{background:#3b82f6;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:.9rem}
+  .toolbar{display:flex;gap:10px;margin-bottom:20px;align-items:center;flex-wrap:wrap}
+  .toolbar input{flex:1;min-width:200px;background:#1a1d2e;border:1px solid #2a2d3e;color:#e0e0e0;padding:10px 14px;border-radius:8px;font-size:.9rem}
+  .toolbar input:focus{outline:none;border-color:#3b82f6}
+  .view-toggle{display:flex;background:#1a1d2e;border:1px solid #2a2d3e;border-radius:8px;overflow:hidden}
+  .view-toggle a{padding:7px 14px;color:#666;text-decoration:none;font-size:.82rem}
+  .view-toggle a.active{background:#3b82f6;color:#fff}
+  .count-badge{font-size:.8rem;color:#555;margin-bottom:16px}
   .pagination{display:flex;align-items:center;gap:8px;margin-top:20px;justify-content:center}
   .pagination a{padding:6px 14px;border-radius:7px;text-decoration:none;color:#888;background:#1a1d2e;border:1px solid #2a2d3e;font-size:.85rem}
   .pagination a.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
   .pagination a.disabled{opacity:.35;pointer-events:none}
-  .count-badge{font-size:.8rem;color:#555;margin-bottom:16px}
+
+  /* ── LIGHTBOX ── */
+  #lightbox{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:999;align-items:center;justify-content:center}
+  #lightbox.open{display:flex}
+  #lightbox img{max-width:90vw;max-height:90vh;border-radius:8px;object-fit:contain}
+  #lightbox-close{position:absolute;top:20px;right:24px;color:#fff;font-size:2rem;cursor:pointer;background:none;border:none;line-height:1}
 </style>
 </head>
 <body>
@@ -40,39 +79,45 @@
 
 <div class="container">
 
-  <!-- Search -->
-  <form method="get" action="/receipts" class="search-bar">
-    <input type="text" name="q" value="{{ q }}"
-           placeholder="Search by store name or item name…" autofocus>
-    <button type="submit">Search</button>
-    {% if q %}<a href="/receipts" class="btn" style="background:#374151">✕ Clear</a>{% endif %}
+  <!-- Search + View Toggle -->
+  <form method="get" action="/receipts" class="toolbar" id="searchForm">
+    <input type="text" name="q" value="{{ q }}" placeholder="Search by store name or item name…" autofocus id="searchInput">
+    <input type="hidden" name="view" value="{{ view }}">
+    <button type="submit" class="btn" style="background:#3b82f6">Search</button>
+    {% if q %}<a href="/receipts?view={{ view }}" class="btn" style="background:#374151">✕ Clear</a>{% endif %}
+    <div class="view-toggle" style="margin-left:auto">
+      <a href="/receipts?q={{ q }}&view=list" class="{% if view == 'list' %}active{% endif %}" title="List view">☰ List</a>
+      <a href="/receipts?q={{ q }}&view=gallery" class="{% if view == 'gallery' %}active{% endif %}" title="Gallery view">⊞ Gallery</a>
+    </div>
   </form>
 
   <div class="count-badge">
-    {% if q %}
-      {{ total_count }} receipt(s) matching "{{ q }}"
-    {% else %}
-      {{ total_count }} total receipts
-    {% endif %}
+    {% if q %}{{ total_count }} receipt(s) matching "{{ q }}"
+    {% else %}{{ total_count }} total receipts{% endif %}
     — page {{ page }} of {{ total_pages }}
   </div>
 
+  {% if receipts %}
+
+  <!-- ══ LIST VIEW ══ -->
+  {% if view == 'list' %}
   <div class="card" style="padding:0;overflow:hidden">
-    {% if receipts %}
     <table class="tbl">
       <thead><tr>
-        <th>#</th>
-        <th>Store</th>
-        <th>Receipt Date</th>
-        <th>Recorded</th>
-        <th>Tax</th>
-        <th>Total</th>
-        <th></th>
+        <th>#</th><th>Photo</th><th>Store</th><th>Receipt Date</th><th>Recorded</th><th>Tax</th><th>Total</th><th></th>
       </tr></thead>
       <tbody>
       {% for r in receipts %}
       <tr>
         <td style="color:#555">{{ r.id }}</td>
+        <td>
+          {% if r.photo_url %}
+          <img src="{{ r.photo_url }}" alt="" style="width:48px;height:40px;object-fit:cover;border-radius:5px;cursor:pointer;vertical-align:middle"
+               onclick="openLightbox('{{ r.photo_url }}')">
+          {% else %}
+          <div style="width:48px;height:40px;background:#13162a;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:#2a2d3e;font-size:1.1rem;vertical-align:middle">📷</div>
+          {% endif %}
+        </td>
         <td style="font-weight:600">{{ r.store_name or '—' }}</td>
         <td style="color:#888">{{ r.receipt_date or '—' }}</td>
         <td style="color:#666;font-size:.82rem">{{ r.created_at[:16] }}</td>
@@ -80,35 +125,100 @@
           {% if r.tax_amount %}${{ "%.2f"|format(r.tax_amount) }}{% else %}—{% endif %}
         </td>
         <td style="font-weight:700;color:#ef4444">-${{ "%.2f"|format(r.total_amount) }} {{ r.currency or '' }}</td>
-        <td>
-          <a href="/fis/{{ r.id }}" class="btn" style="background:#374151;padding:5px 12px;font-size:.78rem">View</a>
-        </td>
+        <td><a href="/fis/{{ r.id }}" class="btn" style="background:#374151;padding:5px 12px;font-size:.78rem">View</a></td>
       </tr>
       {% endfor %}
       </tbody>
     </table>
-    {% else %}
-    <p style="color:#555;text-align:center;padding:50px">
+  </div>
+
+  <!-- ══ GALLERY VIEW ══ -->
+  {% else %}
+  <div class="gallery">
+    {% for r in receipts %}
+    <div class="receipt-card">
+      <!-- Photo -->
+      <div class="receipt-photo" onclick="{% if r.photo_url %}openLightbox('{{ r.photo_url }}'){% endif %}">
+        {% if r.photo_url %}
+        <img src="{{ r.photo_url }}" alt="Receipt #{{ r.id }}">
+        <button class="zoom-btn">🔍 Zoom</button>
+        {% else %}
+        <div class="no-photo">📷</div>
+        {% endif %}
+      </div>
+
+      <!-- Body -->
+      <div class="receipt-body">
+        <div class="receipt-head">
+          <div class="receipt-store">{{ r.store_name or 'Unknown Store' }}</div>
+          <div class="receipt-date">{{ r.receipt_date or r.created_at[:10] }}</div>
+        </div>
+
+        <div class="receipt-totals">
+          <span class="receipt-total">-${{ "%.2f"|format(r.total_amount) }} {{ r.currency or 'CAD' }}</span>
+          {% if r.tax_amount %}<span class="receipt-tax">Tax ${{ "%.2f"|format(r.tax_amount) }}</span>{% endif %}
+        </div>
+
+        <!-- Items -->
+        {% if r.items %}
+        <div class="receipt-items">
+          <div class="receipt-items-title">Items ({{ r.items|length }})</div>
+          {% for item in r.items[:5] %}
+          <div class="receipt-item-row">
+            <span class="receipt-item-name">{{ item.item_name }}</span>
+            <span class="receipt-item-cat">{{ item.category or '?' }}</span>
+            <span class="receipt-item-price">${{ "%.2f"|format(item.total_price) }}</span>
+          </div>
+          {% endfor %}
+          {% if r.items|length > 5 %}
+          <div class="more-items">+ {{ r.items|length - 5 }} more items…</div>
+          {% endif %}
+        </div>
+        {% endif %}
+
+        <div class="receipt-footer">
+          <span style="font-size:.72rem;color:#444">#{{ r.id }} · {{ r.created_at[:16] }}</span>
+          <a href="/fis/{{ r.id }}" class="btn" style="background:#374151;padding:5px 14px;font-size:.78rem">Details →</a>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="card">
+    <p style="color:#555;text-align:center;padding:40px">
       {% if q %}No receipts found for "{{ q }}".{% else %}No receipts yet.{% endif %}
     </p>
-    {% endif %}
   </div>
+  {% endif %}
 
   <!-- Pagination -->
   {% if total_pages > 1 %}
   <div class="pagination">
-    <a href="/receipts?q={{ q }}&page=1" class="{% if page == 1 %}disabled{% endif %}">«</a>
-    <a href="/receipts?q={{ q }}&page={{ page - 1 }}" class="{% if page == 1 %}disabled{% endif %}">‹ Prev</a>
-
+    <a href="/receipts?q={{ q }}&view={{ view }}&page=1" class="{% if page == 1 %}disabled{% endif %}">«</a>
+    <a href="/receipts?q={{ q }}&view={{ view }}&page={{ page - 1 }}" class="{% if page == 1 %}disabled{% endif %}">‹ Prev</a>
     {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
-    <a href="/receipts?q={{ q }}&page={{ p }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
+    <a href="/receipts?q={{ q }}&view={{ view }}&page={{ p }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
     {% endfor %}
-
-    <a href="/receipts?q={{ q }}&page={{ page + 1 }}" class="{% if page == total_pages %}disabled{% endif %}">Next ›</a>
-    <a href="/receipts?q={{ q }}&page={{ total_pages }}" class="{% if page == total_pages %}disabled{% endif %}">»</a>
+    <a href="/receipts?q={{ q }}&view={{ view }}&page={{ page + 1 }}" class="{% if page == total_pages %}disabled{% endif %}">Next ›</a>
+    <a href="/receipts?q={{ q }}&view={{ view }}&page={{ total_pages }}" class="{% if page == total_pages %}disabled{% endif %}">»</a>
   </div>
   {% endif %}
 
 </div>
+
+<!-- Lightbox -->
+<div id="lightbox" onclick="closeLightbox()">
+  <button id="lightbox-close" onclick="closeLightbox()">✕</button>
+  <img id="lightbox-img" src="" alt="Receipt">
+</div>
+
+<script>
+function openLightbox(src){ document.getElementById('lightbox-img').src=src; document.getElementById('lightbox').classList.add('open') }
+function closeLightbox(){ document.getElementById('lightbox').classList.remove('open') }
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeLightbox() })
+</script>
 </body>
 </html>
