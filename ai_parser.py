@@ -100,6 +100,41 @@ def _call_ai(image_data: str, media_type: str, categories: list[str] | None = No
     return response.content[0].text
 
 
+TAX_SCAN_PROMPT = (
+    "Look at this receipt image. Find ONLY the tax information.\n"
+    "Output ONLY valid JSON, nothing else:\n"
+    '{"tax_amount": 0.00, "tax_label": "GST|HST|PST|QST|TAX or null", '
+    '"subtotal": 0.00, "total_amount": 0.00, "currency": "CAD"}\n'
+    "tax_amount = the tax line on the receipt (GST, HST, PST, QST, or any tax). "
+    "If multiple tax lines exist, sum them all into tax_amount. "
+    "subtotal = amount before tax. total_amount = final total including tax. "
+    "If no tax line is found, set tax_amount to 0. Never skip a tax line."
+)
+
+
+def scan_tax(image_path: str) -> dict:
+    """Re-scan a receipt image to extract only tax information."""
+    suffix = Path(image_path).suffix.lower()
+    media_type = MEDIA_MAP.get(suffix, "image/jpeg")
+
+    with open(image_path, "rb") as f:
+        image_data = base64.b64encode(f.read()).decode()
+
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=256,
+        messages=[{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_data}},
+                {"type": "text", "text": TAX_SCAN_PROMPT},
+            ],
+        }],
+    )
+    raw = response.content[0].text
+    return _extract_json(raw)
+
+
 def parse_receipt(image_path: str, categories: list[str] | None = None) -> tuple[dict, str]:
     suffix = Path(image_path).suffix.lower()
     media_type = MEDIA_MAP.get(suffix, "image/jpeg")

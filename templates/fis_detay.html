@@ -69,6 +69,10 @@
     background:#1a1d2e;border:1px solid #2a2d3e;padding:5px 12px;border-radius:6px}
   .nav-links a:hover{color:#60a5fa;border-color:#3b82f6}
 
+  .btn-scan{background:#92400e;color:#fcd34d;border:1px solid #b45309;padding:9px 18px;
+    border-radius:8px;font-size:.85rem;font-weight:600;cursor:pointer;transition:.15s}
+  .btn-scan:hover{background:#b45309}
+  .btn-scan:disabled{opacity:.5;cursor:not-allowed}
   .saved-toast{
     display:none;position:fixed;bottom:24px;right:24px;
     background:#166534;color:#4ade80;border:1px solid #15803d;
@@ -184,6 +188,48 @@
     </table>
     {% endif %}
 
+    <!-- ── Tax Scanner ── -->
+    <div style="margin-top:24px;border-top:1px solid #2a2d3e;padding-top:20px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn btn-scan" id="scanBtn" onclick="scanTax({{ fis.id }})">
+          🔍 Scan Receipt for Tax
+        </button>
+        <span id="scanStatus" style="font-size:.82rem;color:#888"></span>
+      </div>
+
+      <!-- Result card — hidden until scan completes -->
+      <div id="taxResult" style="display:none;margin-top:16px;background:#0f1117;
+           border:1px solid #f59e0b55;border-radius:10px;padding:16px">
+        <div style="font-size:.75rem;color:#f59e0b;text-transform:uppercase;
+             letter-spacing:.06em;margin-bottom:12px">📋 Tax Detected — Review & Confirm</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px">
+          <div>
+            <div style="font-size:.7rem;color:#555;margin-bottom:4px">TAX LABEL</div>
+            <div id="rLabel" style="font-size:1rem;color:#f59e0b;font-weight:600">—</div>
+          </div>
+          <div>
+            <div style="font-size:.7rem;color:#555;margin-bottom:4px">TAX AMOUNT</div>
+            <div id="rTax" style="font-size:1rem;color:#f59e0b;font-weight:600">—</div>
+          </div>
+          <div>
+            <div style="font-size:.7rem;color:#555;margin-bottom:4px">TOTAL (incl. tax)</div>
+            <div id="rTotal" style="font-size:1rem;color:#ef4444;font-weight:600">—</div>
+          </div>
+        </div>
+        <div id="noChangeBanner" style="display:none;font-size:.82rem;color:#4ade80;margin-bottom:10px">
+          ✓ Tax values already match — no update needed.
+        </div>
+        <form method="post" action="/fis/{{ fis.id }}/update-tax" id="confirmForm">
+          <input type="hidden" name="tax_amount"   id="hTax">
+          <input type="hidden" name="total_amount" id="hTotal">
+          <div style="display:flex;gap:8px">
+            <button type="submit" class="btn btn-save btn-sm" id="applyBtn">✓ Apply & Save</button>
+            <button type="button" class="btn btn-cancel btn-sm" onclick="hideTaxResult()">Cancel</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div style="margin-top:20px;display:flex;gap:8px">
       <a href="/" class="btn btn-ghost">← Back</a>
       <form method="post" action="/fis/{{ fis.id }}/sil"
@@ -232,6 +278,52 @@ document.addEventListener('click', function(e) {
     closePop(openPopId);
   }
 });
+
+async function scanTax(receiptId) {
+  const btn = document.getElementById('scanBtn');
+  const status = document.getElementById('scanStatus');
+  btn.disabled = true;
+  btn.textContent = '⏳ Scanning...';
+  status.textContent = 'Reading receipt with AI — this takes a few seconds...';
+  hideTaxResult();
+
+  try {
+    const res = await fetch(`/api/fis/${receiptId}/scan-tax`);
+    const data = await res.json();
+
+    if (!data.ok) {
+      status.textContent = '❌ Error: ' + data.error;
+      btn.disabled = false;
+      btn.textContent = '🔍 Scan Receipt for Tax';
+      return;
+    }
+
+    // Populate result card
+    const cur = data.currency || 'CAD';
+    document.getElementById('rLabel').textContent = data.tax_label || 'Unknown';
+    document.getElementById('rTax').textContent   = `$${data.tax_amount.toFixed(2)} ${cur}`;
+    document.getElementById('rTotal').textContent = `$${data.total_amount.toFixed(2)} ${cur}`;
+    document.getElementById('hTax').value         = data.tax_amount;
+    document.getElementById('hTotal').value       = data.total_amount;
+
+    const noChange = Math.abs(data.tax_amount - data.current_tax) < 0.005;
+    document.getElementById('noChangeBanner').style.display = noChange ? 'block' : 'none';
+    document.getElementById('applyBtn').style.display       = noChange ? 'none'  : 'inline-block';
+
+    document.getElementById('taxResult').style.display = 'block';
+    status.textContent = '';
+  } catch(e) {
+    status.textContent = '❌ Network error. Try again.';
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔍 Scan Receipt for Tax';
+}
+
+function hideTaxResult() {
+  document.getElementById('taxResult').style.display = 'none';
+  document.getElementById('scanStatus').textContent  = '';
+}
 
 // Show toast on redirect back (use URL param)
 if (new URLSearchParams(location.search).get('saved')) {

@@ -16,7 +16,7 @@ from datetime import date, timedelta
 
 import os
 from database import get_db, init_db, apply_aliases, get_categories
-from ai_parser import parse_receipt
+from ai_parser import parse_receipt, scan_tax
 
 # Railway Volume'da kalıcı photos klasörü: PHOTOS_DIR=/data/photos
 PHOTOS_DIR = Path(os.getenv("PHOTOS_DIR", "photos"))
@@ -360,6 +360,51 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
                    (str(e)[:500], receipt_id))
         db.commit(); db.close()
         return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ───────────────────────── Tax Scanner ────────────────────────────
+
+@app.get("/api/fis/{receipt_id}/scan-tax")
+async def fis_scan_tax(receipt_id: int, _auth: None = Depends(require_auth)):
+    """Re-scan receipt photo for tax info. Returns JSON preview — does NOT save."""
+    fis = fetch_one("SELECT photo_path, tax_amount, total_amount, currency FROM receipts WHERE id=?", (receipt_id,))
+    if not fis:
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    photo_path = fis.get("photo_path")
+    if not photo_path or not Path(photo_path).exists():
+        return JSONResponse({"ok": False, "error": "Receipt photo not found on server."})
+
+    try:
+        result = scan_tax(photo_path)
+        return JSONResponse({
+            "ok": True,
+            "tax_amount":   result.get("tax_amount") or 0,
+            "tax_label":    result.get("tax_label"),
+            "subtotal":     result.get("subtotal") or 0,
+            "total_amount": result.get("total_amount") or 0,
+            "currency":     result.get("currency") or fis["currency"] or "CAD",
+            "current_tax":  fis["tax_amount"] or 0,
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.post("/fis/{receipt_id}/update-tax")
+async def fis_update_tax(
+    receipt_id: int,
+    tax_amount: float = Form(...),
+    total_amount: float = Form(...),
+    _auth: None = Depends(require_auth),
+):
+    """Apply confirmed tax amount (and corrected total) to the receipt."""
+    db = get_db()
+    db.execute(
+        "UPDATE receipts SET tax_amount=?, total_amount=? WHERE id=?",
+        (tax_amount, total_amount, receipt_id)
+    )
+    db.commit(); db.close()
+    return RedirectResponse(f"/fis/{receipt_id}?saved=1", status_code=303)
 
 
 # ─────────────────────────── Gelir ────────────────────────────────
