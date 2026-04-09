@@ -23,9 +23,10 @@ def _build_prompt(categories: list[str] | None = None) -> str:
         '"total_amount":0.00,"currency":"CAD","tax_label":"GST|HST|PST or null",'
         f'"items":[{{"item_name":"original name","category":"{cats}",'
         '"quantity":0.0,"unit":"kg|unit|litre|pack","unit_price":0.00,"total_price":0.00}]}}\n'
-        "IMPORTANT: Always extract tax (GST/HST/PST/QST/tax) into tax_amount — even if it is a small line. "
-        "total_amount must include tax. subtotal is before tax. "
-        "If you see any tax line on the receipt, capture it — do not leave tax_amount as 0. "
+        "IMPORTANT: For tax_amount, copy the EXACT number printed on the receipt for any tax line "
+        "(GST, HST, PST, QST, TAX, etc.). Do NOT calculate or estimate — read it directly. "
+        "If multiple tax lines exist, sum only the printed numbers. "
+        "If no tax line is visible, set tax_amount to 0. "
         "Use null for truly unknown fields. Keep item names in their original language. "
         f'When category is unclear, use your best guess from: {cats}.'
     )
@@ -105,10 +106,13 @@ TAX_SCAN_PROMPT = (
     "Output ONLY valid JSON, nothing else:\n"
     '{"tax_amount": 0.00, "tax_label": "GST|HST|PST|QST|TAX or null", '
     '"subtotal": 0.00, "total_amount": 0.00, "currency": "CAD"}\n'
-    "tax_amount = the tax line on the receipt (GST, HST, PST, QST, or any tax). "
-    "If multiple tax lines exist, sum them all into tax_amount. "
-    "subtotal = amount before tax. total_amount = final total including tax. "
-    "If no tax line is found, set tax_amount to 0. Never skip a tax line."
+    "RULES:\n"
+    "- tax_amount: copy the EXACT printed number from the tax line on the receipt. "
+    "DO NOT calculate or estimate. Read it directly from the receipt.\n"
+    "- If multiple tax lines (e.g. GST + PST), add only the printed numbers.\n"
+    "- subtotal and total_amount: also copy exactly from the receipt.\n"
+    "- If no tax line is visible on the receipt, set tax_amount to 0.\n"
+    "- Never guess or compute tax from item prices."
 )
 
 
