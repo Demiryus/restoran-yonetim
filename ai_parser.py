@@ -23,8 +23,10 @@ def _build_prompt(categories: list[str] | None = None) -> str:
         '"total_amount":0.00,"currency":"CAD","tax_label":"GST|HST|PST or null",'
         f'"items":[{{"item_name":"original name","category":"{cats}",'
         '"quantity":0.0,"unit":"kg|unit|litre|pack","unit_price":0.00,"total_price":0.00}]}}\n'
-        "Extract tax (GST/HST/PST) into tax_amount. total_amount = subtotal + tax_amount. "
-        "Use null for unknowns. Keep item names in their original language. "
+        "IMPORTANT: Always extract tax (GST/HST/PST/QST/tax) into tax_amount — even if it is a small line. "
+        "total_amount must include tax. subtotal is before tax. "
+        "If you see any tax line on the receipt, capture it — do not leave tax_amount as 0. "
+        "Use null for truly unknown fields. Keep item names in their original language. "
         f'When category is unclear, use your best guess from: {cats}.'
     )
 
@@ -79,7 +81,7 @@ def _call_ai(image_data: str, media_type: str, categories: list[str] | None = No
     prompt = _build_prompt(categories)
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1000,
+        max_tokens=2048,
         messages=[{
             "role": "user",
             "content": [

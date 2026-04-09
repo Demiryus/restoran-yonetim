@@ -7,9 +7,6 @@
 <style>
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;padding:24px}
-  .back{color:#3b82f6;text-decoration:none;font-size:.875rem;display:inline-flex;
-    align-items:center;gap:6px;margin-bottom:20px}
-  .back:hover{color:#60a5fa}
   .layout{display:grid;grid-template-columns:1fr 380px;gap:20px;max-width:1100px;margin:0 auto;align-items:start}
   @media(max-width:720px){.layout{grid-template-columns:1fr}}
   .card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:24px}
@@ -17,47 +14,72 @@
   .meta{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
   .meta-item label{font-size:.75rem;color:#666;text-transform:uppercase;letter-spacing:.05em}
   .meta-item p{font-size:1rem;color:#ccc;margin-top:4px}
+
   table{width:100%;border-collapse:collapse;font-size:.875rem}
-  th{text-align:left;padding:10px;color:#555;font-size:.75rem;
+  th{text-align:left;padding:10px 8px;color:#555;font-size:.72rem;
     border-bottom:1px solid #2a2d3e;text-transform:uppercase}
-  td{padding:8px 10px;border-bottom:1px solid #1a1d2e;color:#ccc;vertical-align:middle}
-  .total-row td{font-weight:700;color:#ef4444;border-top:2px solid #2a2d3e}
-  .btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;
-    font-weight:600;text-decoration:none;display:inline-block}
+  td{padding:8px;border-bottom:1px solid #151824;color:#ccc;vertical-align:middle}
+  .total-row td{font-weight:700;color:#ef4444;border-top:2px solid #2a2d3e;padding-top:12px}
+  .tax-row td{color:#f59e0b;font-size:.85rem}
+
+  /* ── Category cell: click to edit ── */
+  .cat-cell{position:relative}
+  .cat-badge{
+    display:inline-flex;align-items:center;gap:4px;
+    background:#2a2d3e;border:1px solid #3a3d4e;border-radius:5px;
+    padding:3px 9px;font-size:.78rem;color:#a5b4fc;cursor:pointer;
+    transition:background .15s,border-color .15s;user-select:none
+  }
+  .cat-badge:hover{background:#333654;border-color:#6366f1}
+  .cat-badge .pencil{font-size:.65rem;opacity:.5}
+  .cat-popover{
+    display:none;position:absolute;left:0;top:calc(100% + 4px);z-index:50;
+    background:#1e2135;border:1px solid #3a3d4e;border-radius:10px;
+    padding:12px;min-width:240px;box-shadow:0 8px 24px #00000066
+  }
+  .cat-popover.open{display:block}
+  .cat-popover select{
+    width:100%;background:#0f1117;border:1px solid #3a3d4e;color:#e0e0e0;
+    padding:7px 10px;border-radius:7px;font-size:.85rem;margin-bottom:8px
+  }
+  .cat-popover select:focus{outline:none;border-color:#6366f1}
+  .teach-label{display:flex;align-items:flex-start;gap:7px;font-size:.78rem;
+    color:#888;cursor:pointer;margin-bottom:10px;line-height:1.4}
+  .teach-label input{accent-color:#4ade80;margin-top:2px;flex-shrink:0}
+  .teach-active{color:#4ade80}
+  .pop-btns{display:flex;gap:6px}
+  .btn{padding:7px 14px;border-radius:7px;border:none;cursor:pointer;
+    font-size:.82rem;font-weight:600;text-decoration:none;display:inline-block}
+  .btn-save{background:#4f46e5;color:#fff}
+  .btn-save:hover{background:#6366f1}
+  .btn-cancel{background:#1a1d2e;border:1px solid #2a2d3e;color:#aaa}
+  .btn-cancel:hover{color:#fff}
   .btn-danger{background:#7f1d1d;color:#fca5a5}
   .btn-ghost{background:#1a1d2e;border:1px solid #2a2d3e;color:#aaa}
   .btn-ghost:hover{color:#fff}
-  .btn-primary{background:#1d4ed8;color:#fff}
-  .btn-primary:hover{background:#2563eb}
-  .btn-sm{padding:4px 10px;font-size:.75rem;border-radius:6px}
+  .btn-sm{padding:5px 12px;font-size:.78rem}
+
   .photo-card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;overflow:hidden}
-  .photo-card img{width:100%;display:block;border-radius:0}
-  .photo-label{padding:12px 16px;font-size:.75rem;color:#555;text-align:center;text-transform:uppercase;letter-spacing:.05em}
+  .photo-card img{width:100%;display:block}
+  .photo-label{padding:10px 16px;font-size:.72rem;color:#555;text-align:center;
+    text-transform:uppercase;letter-spacing:.05em}
 
-  /* Category edit inline */
-  .cat-display{display:flex;align-items:center;gap:6px}
-  .cat-badge{background:#2a2d3e;border-radius:4px;padding:2px 8px;font-size:.75rem;color:#aaa}
-  .cat-edit-btn{background:none;border:none;cursor:pointer;color:#3b82f6;font-size:.75rem;padding:2px 6px;
-    border-radius:4px;opacity:.6}
-  .cat-edit-btn:hover{opacity:1;background:#1e3a5f}
-  .cat-form{display:none;flex-direction:column;gap:6px;background:#0f1117;border:1px solid #2a2d3e;
-    border-radius:8px;padding:10px;margin-top:4px;min-width:200px}
-  .cat-form.open{display:flex}
-  .cat-form select{background:#1a1d2e;border:1px solid #2a2d3e;color:#e0e0e0;padding:5px 8px;
-    border-radius:6px;font-size:.82rem}
-  .cat-form label{font-size:.75rem;color:#888;display:flex;align-items:center;gap:6px;cursor:pointer}
-  .cat-form label input{accent-color:#3b82f6}
-  .cat-form .form-btns{display:flex;gap:6px}
-  .teach-hint{font-size:.7rem;color:#4ade80;display:none}
-  .teach-hint.show{display:block}
-
-  .nav-links{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
-  .nav-links a{color:#3b82f6;text-decoration:none;font-size:.85rem;
+  .nav-links{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+  .nav-links a{color:#3b82f6;text-decoration:none;font-size:.83rem;
     background:#1a1d2e;border:1px solid #2a2d3e;padding:5px 12px;border-radius:6px}
   .nav-links a:hover{color:#60a5fa;border-color:#3b82f6}
+
+  .saved-toast{
+    display:none;position:fixed;bottom:24px;right:24px;
+    background:#166534;color:#4ade80;border:1px solid #15803d;
+    border-radius:8px;padding:10px 18px;font-size:.85rem;font-weight:600;
+    z-index:999;animation:fadeIn .2s ease
+  }
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 </style>
 </head>
 <body>
+
 <div class="nav-links">
   <a href="/">← Dashboard</a>
   <a href="/receipts">All Receipts</a>
@@ -67,11 +89,28 @@
 <div class="layout">
   <div class="card">
     <h1>Receipt #{{ fis.id }}</h1>
+
     <div class="meta">
       <div class="meta-item"><label>Store</label><p>{{ fis.store_name or '—' }}</p></div>
       <div class="meta-item"><label>Date</label><p>{{ fis.receipt_date or '—' }}</p></div>
       <div class="meta-item">
-        <label>Total</label>
+        <label>Subtotal</label>
+        <p style="color:#ef4444;font-size:1.15rem;font-weight:700">
+          ${{ "%.2f"|format((fis.total_amount or 0) - (fis.tax_amount or 0)) }} {{ fis.currency }}
+        </p>
+      </div>
+      <div class="meta-item">
+        <label>Tax (GST/HST/PST)</label>
+        <p style="color:#f59e0b;font-size:1.15rem;font-weight:700">
+          {% if fis.tax_amount and fis.tax_amount > 0 %}
+            ${{ "%.2f"|format(fis.tax_amount) }} {{ fis.currency }}
+          {% else %}
+            <span style="color:#555">Not detected</span>
+          {% endif %}
+        </p>
+      </div>
+      <div class="meta-item">
+        <label>Total (incl. tax)</label>
         <p style="color:#ef4444;font-size:1.3rem;font-weight:700">
           ${{ "%.2f"|format(fis.total_amount) }} {{ fis.currency }}
         </p>
@@ -80,13 +119,16 @@
     </div>
 
     {% if items %}
+    <p style="font-size:.75rem;color:#555;margin-bottom:8px">
+      💡 Click any category badge to change it. Check "Teach bot" to remember for next time.
+    </p>
     <table>
       <thead>
         <tr>
           <th>Item</th>
-          <th>Category</th>
+          <th>Category <span style="color:#4f46e5;font-size:.65rem">(click to edit)</span></th>
           <th>Qty</th>
-          <th>Unit Price</th>
+          <th>Unit $</th>
           <th>Total</th>
         </tr>
       </thead>
@@ -94,29 +136,30 @@
         {% for i in items %}
         <tr>
           <td>{{ i.item_name or '?' }}</td>
-          <td>
-            <div class="cat-display">
-              <span class="cat-badge" id="badge-{{ i.id }}">{{ i.category or 'other' }}</span>
-              <button class="cat-edit-btn" onclick="toggleEdit({{ i.id }})">✏ edit</button>
-            </div>
-            <div class="cat-form" id="form-{{ i.id }}">
-              <form method="post" action="/item/{{ i.id }}/category">
-                <select name="category" id="sel-{{ i.id }}" onchange="updateTeachHint({{ i.id }})">
+          <td class="cat-cell">
+            <!-- Clickable badge -->
+            <span class="cat-badge" onclick="openPop({{ i.id }})" id="badge-{{ i.id }}">
+              {{ i.category or 'other' }} <span class="pencil">✏</span>
+            </span>
+
+            <!-- Popover form -->
+            <div class="cat-popover" id="pop-{{ i.id }}">
+              <form method="post" action="/item/{{ i.id }}/category" id="f-{{ i.id }}">
+                <select name="category" id="sel-{{ i.id }}">
                   {% for cat in categories %}
-                  <option value="{{ cat }}" {% if cat == (i.category or 'other') %}selected{% endif %}>{{ cat }}</option>
+                  <option value="{{ cat }}" {% if cat == (i.category or 'other') %}selected{% endif %}>
+                    {{ cat }}
+                  </option>
                   {% endfor %}
                 </select>
-                <label>
+                <label class="teach-label" id="tlabel-{{ i.id }}">
                   <input type="checkbox" name="teach" value="1" id="teach-{{ i.id }}"
-                         onchange="updateTeachHint({{ i.id }})">
-                  Teach bot — remember "{{ i.item_name }}" = this category
+                         onchange="toggleTeach({{ i.id }})">
+                  <span>Teach bot — always put "<strong>{{ i.item_name }}</strong>" in this category</span>
                 </label>
-                <span class="teach-hint" id="hint-{{ i.id }}">
-                  ✓ Bot will auto-categorize "{{ i.item_name }}" next time
-                </span>
-                <div class="form-btns">
-                  <button type="submit" class="btn btn-primary btn-sm">Save</button>
-                  <button type="button" class="btn btn-ghost btn-sm" onclick="toggleEdit({{ i.id }})">Cancel</button>
+                <div class="pop-btns">
+                  <button type="submit" class="btn btn-save btn-sm">✓ Save</button>
+                  <button type="button" class="btn btn-cancel btn-sm" onclick="closePop({{ i.id }})">Cancel</button>
                 </div>
               </form>
             </div>
@@ -126,6 +169,13 @@
           <td style="color:#ef4444">${{ "%.2f"|format(i.total_price) }}</td>
         </tr>
         {% endfor %}
+
+        {% if fis.tax_amount and fis.tax_amount > 0 %}
+        <tr class="tax-row">
+          <td colspan="4" style="color:#f59e0b">TAX (GST/HST/PST)</td>
+          <td style="color:#f59e0b">${{ "%.2f"|format(fis.tax_amount) }}</td>
+        </tr>
+        {% endif %}
         <tr class="total-row">
           <td colspan="4">TOTAL</td>
           <td>${{ "%.2f"|format(fis.total_amount) }} {{ fis.currency }}</td>
@@ -151,16 +201,43 @@
   {% endif %}
 </div>
 
+<div class="saved-toast" id="toast">✓ Category saved!</div>
+
 <script>
-function toggleEdit(id) {
-  const form = document.getElementById('form-' + id);
-  form.classList.toggle('open');
+let openPopId = null;
+
+function openPop(id) {
+  if (openPopId !== null && openPopId !== id) closePop(openPopId);
+  document.getElementById('pop-' + id).classList.add('open');
+  openPopId = id;
 }
 
-function updateTeachHint(id) {
+function closePop(id) {
+  document.getElementById('pop-' + id).classList.remove('open');
+  if (openPopId === id) openPopId = null;
+}
+
+function toggleTeach(id) {
   const cb = document.getElementById('teach-' + id);
-  const hint = document.getElementById('hint-' + id);
-  hint.classList.toggle('show', cb.checked);
+  const lbl = document.getElementById('tlabel-' + id);
+  lbl.classList.toggle('teach-active', cb.checked);
+}
+
+// Close popover when clicking outside
+document.addEventListener('click', function(e) {
+  if (openPopId === null) return;
+  const pop = document.getElementById('pop-' + openPopId);
+  const badge = document.getElementById('badge-' + openPopId);
+  if (pop && !pop.contains(e.target) && badge && !badge.contains(e.target)) {
+    closePop(openPopId);
+  }
+});
+
+// Show toast on redirect back (use URL param)
+if (new URLSearchParams(location.search).get('saved')) {
+  const t = document.getElementById('toast');
+  t.style.display = 'block';
+  setTimeout(() => t.style.display = 'none', 2500);
 }
 </script>
 </body>

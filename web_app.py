@@ -301,6 +301,7 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
                 store_name      = ?,
                 receipt_date    = ?,
                 total_amount    = ?,
+                tax_amount      = ?,
                 currency        = ?,
                 parse_status    = 'success',
                 parse_error     = NULL,
@@ -310,6 +311,7 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
             parsed.get("store_name") or "Unknown",
             parsed.get("receipt_date"),
             parsed.get("total_amount") or 0,
+            parsed.get("tax_amount") or 0,
             parsed.get("currency") or "CAD",
             raw,
             receipt_id,
@@ -979,7 +981,7 @@ async def item_update_category(
     # Get receipt_id to redirect back
     receipt_id = fetch_one("SELECT receipt_id FROM receipt_items WHERE id=?", (item_id,))
     if receipt_id:
-        return RedirectResponse(f"/fis/{receipt_id['receipt_id']}", status_code=303)
+        return RedirectResponse(f"/fis/{receipt_id['receipt_id']}?saved=1", status_code=303)
     return RedirectResponse("/", status_code=303)
 
 
