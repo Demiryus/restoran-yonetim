@@ -131,12 +131,17 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
         "GROUP BY ri.category ORDER BY toplam DESC"
     )
 
-    trend = []
-    for i in range(6, -1, -1):
-        d = (date.today() - timedelta(days=i)).isoformat()
-        g   = scalar("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=?", (d,))
-        inc = scalar("SELECT COALESCE(SUM(amount),0) FROM income WHERE date(income_date)=?", (d,))
-        trend.append({"tarih": d[-5:], "gider": g, "gelir": inc})
+    _trend_days = [(date.today() - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
+    _gider_rows = {r["d"]: r["v"] for r in fetch_all(
+        "SELECT date(created_at) as d, COALESCE(SUM(total_amount),0) as v FROM receipts "
+        "WHERE date(created_at) >= ? GROUP BY date(created_at)", (_trend_days[0],)
+    )}
+    _gelir_rows = {r["d"]: r["v"] for r in fetch_all(
+        "SELECT date(income_date) as d, COALESCE(SUM(amount),0) as v FROM income "
+        "WHERE date(income_date) >= ? GROUP BY date(income_date)", (_trend_days[0],)
+    )}
+    trend = [{"tarih": d[-5:], "gider": _gider_rows.get(d, 0), "gelir": _gelir_rows.get(d, 0)}
+             for d in _trend_days]
 
     dusuk_stok = fetch_all(
         "SELECT item_name, current_quantity, unit, min_quantity FROM stock "

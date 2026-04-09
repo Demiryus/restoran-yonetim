@@ -104,6 +104,7 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_receipts_status    ON receipts(parse_status);
         CREATE INDEX IF NOT EXISTS idx_receipt_items_rid  ON receipt_items(receipt_id);
         CREATE INDEX IF NOT EXISTS idx_receipt_items_name ON receipt_items(item_name);
+        CREATE INDEX IF NOT EXISTS idx_ri_item_lower      ON receipt_items(lower(item_name));
         CREATE INDEX IF NOT EXISTS idx_stock_name         ON stock(item_name);
         CREATE INDEX IF NOT EXISTS idx_income_date        ON income(income_date DESC);
         CREATE INDEX IF NOT EXISTS idx_manual_exp_date    ON manual_expenses(expense_date DESC);

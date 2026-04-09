@@ -71,7 +71,7 @@ def _call_ai(image_data: str, media_type: str) -> str:
     """Single AI call, returns raw text."""
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=2000,
+        max_tokens=1000,
         messages=[{
             "role": "user",
             "content": [

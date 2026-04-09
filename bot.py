@@ -497,6 +497,9 @@ async def cmd_stok_kullan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         name = args[0]
         qty  = float(args[1])
+        if qty <= 0:
+            await update.message.reply_text("Invalid quantity. Use a positive number.")
+            return
         db   = get_db()
         row  = db.execute("SELECT current_quantity, unit FROM stock WHERE item_name=?", (name,)).fetchone()
         if not row:
