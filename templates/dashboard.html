@@ -241,6 +241,39 @@
     </div>
   </div>
 
+  <!-- FAILED / PENDING RECEIPTS ALERT -->
+  {% if failed_receipts %}
+  <div class="card" style="border-left:4px solid #ef4444;margin-bottom:1rem">
+    <div class="section-title" style="color:#ef4444">
+      <span>⚠️ Receipts Requiring Attention ({{ failed_receipts|length }})</span>
+      <span style="font-size:.75rem;color:#777;font-weight:400">Photo saved, AI parsing failed — retry or delete</span>
+    </div>
+    <div>
+      {% for r in failed_receipts %}
+      <div style="display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #2a2a2a">
+        <span style="background:#ef4444;color:#fff;border-radius:4px;padding:2px 7px;font-size:.75rem;font-weight:600">
+          {{ r.parse_status|upper }}
+        </span>
+        <span style="color:#aaa;font-size:.82rem;flex:1">
+          #{{ r.id }} — {{ r.created_at[:16] }} — @{{ r.telegram_username or '?' }}
+        </span>
+        {% if r.parse_error %}
+        <span style="color:#f87171;font-size:.75rem;flex:2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+              title="{{ r.parse_error }}">{{ r.parse_error[:80] }}</span>
+        {% endif %}
+        <form method="post" action="/fis/{{ r.id }}/retry" style="margin:0">
+          <button class="btn" style="background:#3b82f6;padding:4px 12px;font-size:.78rem">↺ Retry</button>
+        </form>
+        <form method="post" action="/fis/{{ r.id }}/sil" style="margin:0"
+              onsubmit="return confirm('Delete this receipt?')">
+          <button class="btn btn-danger" style="padding:4px 10px;font-size:.78rem">✕</button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
   <!-- MAIN 2-COLUMN LAYOUT -->
   <div class="main-grid">
 

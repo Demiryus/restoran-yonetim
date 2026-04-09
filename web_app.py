@@ -3,7 +3,7 @@ Web Dashboard — FastAPI
 Çalıştır: uvicorn web_app:app --reload --port 8000
 """
 from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
@@ -12,6 +12,7 @@ from datetime import date, timedelta
 
 import os
 from database import get_db, init_db
+from ai_parser import parse_receipt
 
 # Railway Volume'da kalıcı photos klasörü: PHOTOS_DIR=/data/photos
 PHOTOS_DIR = Path(os.getenv("PHOTOS_DIR", "photos"))
@@ -62,14 +63,20 @@ async def dashboard(request: Request, period: str = "today"):
         date_filter_i = "1=1"
         label = "Tüm Zamanlar"
 
-    total_gider = scalar(f"SELECT COALESCE(SUM(total_amount),0) FROM receipts r WHERE {date_filter_r}")
+    total_gider = scalar(f"SELECT COALESCE(SUM(total_amount),0) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
     total_gelir = scalar(f"SELECT COALESCE(SUM(amount),0) FROM income i WHERE {date_filter_i}")
     net         = total_gelir - total_gider
-    n_fis       = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r}")
+    n_fis       = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
+
+    # Failed/pending receipts (always shown regardless of period)
+    failed_receipts = fetch_all(
+        "SELECT id, photo_path, parse_status, parse_error, created_at, telegram_username "
+        "FROM receipts WHERE parse_status IN ('failed','pending') ORDER BY created_at DESC LIMIT 20"
+    )
 
     son_fisler = fetch_all(
-        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.currency, r.created_at "
-        f"FROM receipts r WHERE {date_filter_r} ORDER BY r.created_at DESC LIMIT 10"
+        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.currency, r.created_at, r.parse_status "
+        f"FROM receipts r WHERE {date_filter_r} AND r.parse_status='success' ORDER BY r.created_at DESC LIMIT 10"
     )
 
     # Fetch items for each recent receipt
@@ -135,6 +142,7 @@ async def dashboard(request: Request, period: str = "today"):
         "dusuk_stok": dusuk_stok,
         "stok": stok,
         "total_stok_degeri": total_stok_degeri,
+        "failed_receipts": failed_receipts,
     })
 
 
@@ -200,6 +208,89 @@ async def fis_sil(receipt_id: int):
     db.commit()
     db.close()
     return RedirectResponse("/", status_code=303)
+
+
+@app.post("/fis/{receipt_id}/retry")
+async def fis_retry(receipt_id: int):
+    """Re-run AI parsing on a failed/pending receipt."""
+    db = get_db()
+    row = db.execute("SELECT photo_path, type FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    photo_path = row["photo_path"]
+    if not photo_path or not Path(photo_path).exists():
+        db.execute("UPDATE receipts SET parse_status='failed', parse_error='Photo file not found' WHERE id=?", (receipt_id,))
+        db.commit(); db.close()
+        return JSONResponse({"ok": False, "error": "Photo file not found"})
+
+    try:
+        parsed, raw = parse_receipt(photo_path)
+        tuketim = (row["type"] == "consumption")
+
+        db.execute("""
+            UPDATE receipts SET
+                store_name      = ?,
+                receipt_date    = ?,
+                total_amount    = ?,
+                currency        = ?,
+                parse_status    = 'success',
+                parse_error     = NULL,
+                raw_ai_response = ?
+            WHERE id = ?
+        """, (
+            parsed.get("store_name") or "Unknown",
+            parsed.get("receipt_date"),
+            parsed.get("total_amount") or 0,
+            parsed.get("currency") or "CAD",
+            raw,
+            receipt_id,
+        ))
+
+        # Delete old items and re-insert
+        db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (receipt_id,))
+
+        for item in (parsed.get("items") or []):
+            name    = item.get("item_name") or "?"
+            qty     = float(item.get("quantity") or 0)
+            unit    = item.get("unit") or ""
+            cat     = item.get("category") or "other"
+            u_price = float(item.get("unit_price") or 0)
+            t_price = float(item.get("total_price") or 0)
+
+            db.execute("""
+                INSERT INTO receipt_items
+                    (receipt_id, item_name, category, quantity, unit, unit_price, total_price)
+                VALUES (?,?,?,?,?,?,?)
+            """, (receipt_id, name, cat, qty, unit, u_price, t_price))
+
+            if name and qty > 0:
+                if tuketim:
+                    db.execute("""
+                        UPDATE stock SET
+                            current_quantity = MAX(0, current_quantity - ?),
+                            last_updated     = datetime('now','localtime')
+                        WHERE item_name = ?
+                    """, (qty, name))
+                else:
+                    db.execute("""
+                        INSERT INTO stock (item_name, category, current_quantity, unit, last_updated)
+                        VALUES (?,?,?,?, datetime('now','localtime'))
+                        ON CONFLICT(item_name) DO UPDATE SET
+                            current_quantity = current_quantity + ?,
+                            category         = COALESCE(excluded.category, category),
+                            last_updated     = datetime('now','localtime')
+                    """, (name, cat, qty, unit, qty))
+
+        db.commit(); db.close()
+        return RedirectResponse("/", status_code=303)
+
+    except Exception as e:
+        db.execute("UPDATE receipts SET parse_status='failed', parse_error=? WHERE id=?",
+                   (str(e)[:500], receipt_id))
+        db.commit(); db.close()
+        return JSONResponse({"ok": False, "error": str(e)})
 
 
 # ─────────────────────────── Gelir ────────────────────────────────

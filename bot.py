@@ -1,14 +1,14 @@
 """
 Restoran Yönetim Telegram Botu
-Komutlar:
-  /start              - Karşılama
-  /gelir 500 Öğle     - Gelir ekle
-  /ozet               - Bugünkü özet
-  /stok               - Stok durumu
-  /stokduzenle        - Stok miktarını SET et  (örn: /stokduzenle tavuk 10 kg)
-  /stokkullan         - Stoktan düş           (örn: /stokkullan tavuk 2)
-  /stoksil            - Stok kalemi sil        (örn: /stoksil tavuk)
-  Fotoğraf göndermek  - Fiş işleme
+Commands:
+  /start              - Welcome
+  /income 500 Lunch   - Add income
+  /summary            - Today's summary
+  /stock              - Stock status
+  /stockset chicken 10 kg  - Set stock quantity
+  /stockuse chicken 2      - Deduct from stock
+  /stockdel chicken        - Delete stock item
+  Photo                    - Process receipt
 """
 import os
 from datetime import datetime
@@ -48,12 +48,11 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
-# ──────────────────────────── Fotoğraf ────────────────────────────
+# ──────────────────────────── Photo handler ────────────────────────
 
 TUKETIM_KELIMELERI = {"kullan", "use", "consume", "deduct", "çıkar", "cikar", "tüket", "tuket", "sarf"}
 
 def _tuketim_modu(caption: str | None) -> bool:
-    """Caption 'kullan', 'çıkar' vb. içeriyorsa tüketim modu (stoktan düş)."""
     if not caption:
         return False
     low = caption.lower()
@@ -64,37 +63,62 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     tuketim  = _tuketim_modu(caption)
     mod_text = "deducting from stock" if tuketim else "adding to stock"
 
-    msg = await update.message.reply_text(f"Analyzing receipt... ({mod_text})")
+    msg = await update.message.reply_text(f"Downloading receipt... ({mod_text})")
 
+    # ── Step 1: Download photo ──────────────────────────────────────
     photo = update.message.photo[-1]
     tg_file = await context.bot.get_file(photo.file_id)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     photo_path = f"{PHOTOS_DIR}/{ts}_{photo.file_id}.jpg"
     await tg_file.download_to_drive(photo_path)
 
+    # ── Step 2: Save receipt record immediately (parse_status=pending) ──
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO receipts
+            (telegram_user_id, telegram_username, photo_path,
+             store_name, receipt_date, total_amount, currency, type,
+             parse_status, raw_ai_response)
+        VALUES (?,?,?,?,?,?,?,?,?,?)
+    """, (
+        str(update.effective_user.id),
+        update.effective_user.username or "unknown",
+        photo_path,
+        None, None, 0,
+        "CAD",
+        "consumption" if tuketim else "expense",
+        "pending",
+        None,
+    ))
+    receipt_id = cur.lastrowid
+    db.commit()
+
+    # ── Step 3: AI parsing ──────────────────────────────────────────
+    await msg.edit_text(f"Analyzing receipt with AI... ({mod_text})")
+
     try:
         parsed, raw = parse_receipt(photo_path)
 
-        db = get_db()
-        cur = db.cursor()
-
+        # Update receipt with parsed data
         cur.execute("""
-            INSERT INTO receipts
-                (telegram_user_id, telegram_username, photo_path,
-                 store_name, receipt_date, total_amount, currency, type, raw_ai_response)
-            VALUES (?,?,?,?,?,?,?,?,?)
+            UPDATE receipts SET
+                store_name      = ?,
+                receipt_date    = ?,
+                total_amount    = ?,
+                currency        = ?,
+                parse_status    = 'success',
+                parse_error     = NULL,
+                raw_ai_response = ?
+            WHERE id = ?
         """, (
-            str(update.effective_user.id),
-            update.effective_user.username or "unknown",
-            photo_path,
-            parsed.get("store_name") or "Bilinmiyor",
+            parsed.get("store_name") or "Unknown",
             parsed.get("receipt_date"),
             parsed.get("total_amount") or 0,
             parsed.get("currency") or "CAD",
-            "consumption" if tuketim else "expense",
             raw,
+            receipt_id,
         ))
-        receipt_id = cur.lastrowid
 
         items = parsed.get("items") or []
         stok_satirlari = []
@@ -103,7 +127,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             name    = item.get("item_name") or "?"
             qty     = float(item.get("quantity") or 0)
             unit    = item.get("unit") or ""
-            cat     = item.get("category") or "diğer"
+            cat     = item.get("category") or "other"
             u_price = float(item.get("unit_price") or 0)
             t_price = float(item.get("total_price") or 0)
 
@@ -115,16 +139,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             if name and qty > 0:
                 if tuketim:
-                    # Stoktan düş — sıfırın altına inme
                     cur.execute("""
                         UPDATE stock SET
                             current_quantity = MAX(0, current_quantity - ?),
                             last_updated     = datetime('now','localtime')
                         WHERE item_name = ?
                     """, (qty, name))
-                    stok_satirlari.append(f"  ➖ {name}: -{qty:.1f} {unit}")
+                    stok_satirlari.append(f"  \u2796 {name}: -{qty:.1f} {unit}")
                 else:
-                    # Stoğa ekle — yoksa yeni kayıt oluştur
                     cur.execute("""
                         INSERT INTO stock (item_name, category, current_quantity, unit, last_updated)
                         VALUES (?,?,?,?, datetime('now','localtime'))
@@ -133,7 +155,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                             category         = COALESCE(excluded.category, category),
                             last_updated     = datetime('now','localtime')
                     """, (name, cat, qty, unit, qty))
-                    stok_satirlari.append(f"  ➕ {name}: +{qty:.1f} {unit}")
+                    stok_satirlari.append(f"  \u2795 {name}: +{qty:.1f} {unit}")
 
         db.commit()
         db.close()
@@ -141,14 +163,14 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         cur_sym = parsed.get("currency") or "CAD"
         total   = parsed.get("total_amount") or 0
         item_lines = "\n".join(
-            f"  • {i.get('item_name','?')}  "
+            f"  \u2022 {i.get('item_name','?')}  "
             f"{i.get('quantity','?')} {i.get('unit','')}  "
-            f"→ {float(i.get('total_price') or 0):.2f} {cur_sym}"
+            f"\u2192 {float(i.get('total_price') or 0):.2f} {cur_sym}"
             for i in items[:12]
-        ) or "  (ürün okunamadı)"
+        ) or "  (could not read items)"
 
-        stok_blok = "\n".join(stok_satirlari[:12]) if stok_satirlari else "  (stok değişikliği yok)"
-        mod_emoji = "📤" if tuketim else "📥"
+        stok_blok = "\n".join(stok_satirlari[:12]) if stok_satirlari else "  (no stock changes)"
+        mod_emoji = "\U0001F4E4" if tuketim else "\U0001F4E5"
 
         await msg.edit_text(
             f"*Receipt saved!*\n\n"
@@ -162,14 +184,26 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
+        # Mark receipt as failed — photo and record are already saved
+        db.execute("""
+            UPDATE receipts SET
+                parse_status = 'failed',
+                parse_error  = ?
+            WHERE id = ?
+        """, (str(e)[:500], receipt_id))
+        db.commit()
+        db.close()
+
         await msg.edit_text(
-            f"Failed to read receipt.\n`{e}`\n\n"
-            "Try taking a clearer, well-lit photo.",
+            f"*Photo saved* (receipt #{receipt_id}), but AI parsing failed.\n"
+            f"`{str(e)[:200]}`\n\n"
+            f"You can retry from the dashboard: {WEB_URL}\n"
+            "Or try taking a clearer, well-lit photo.",
             parse_mode="Markdown",
         )
 
 
-# ──────────────────────────── /gelir ──────────────────────────────
+# ──────────────────────────── /income ──────────────────────────────
 async def cmd_gelir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if not args:
@@ -186,28 +220,31 @@ async def cmd_gelir(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Invalid amount. Example: `/income 1500`", parse_mode="Markdown")
 
 
-# ──────────────────────────── /ozet ───────────────────────────────
+# ──────────────────────────── /summary ─────────────────────────────
 async def cmd_ozet(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db    = get_db()
-    gider = db.execute("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=date('now','localtime')").fetchone()[0]
+    gider = db.execute("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
     gelir = db.execute("SELECT COALESCE(SUM(amount),0)       FROM income   WHERE date(income_date)=date('now','localtime')").fetchone()[0]
-    n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime')").fetchone()[0]
+    n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
+    n_fail= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='failed'").fetchone()[0]
     db.close()
 
     net   = gelir - gider
     emoji = "Profitable" if net >= 0 else "In loss"
+    fail_note = f"\n\u26A0\uFE0F {n_fail} receipt(s) failed to parse — check dashboard" if n_fail else ""
 
     await update.message.reply_text(
         f"*Today's Summary*\n\n"
         f"Income  : {gelir:>10.2f} CAD\n"
         f"Expense : {gider:>10.2f} CAD  ({n_fis} receipt(s))\n"
         f"{'─'*30}\n"
-        f"Net     : {net:>10.2f} CAD  ({emoji})",
+        f"Net     : {net:>10.2f} CAD  ({emoji})"
+        f"{fail_note}",
         parse_mode="Markdown",
     )
 
 
-# ──────────────────────────── /stok ───────────────────────────────
+# ──────────────────────────── /stock ───────────────────────────────
 async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db   = get_db()
     rows = db.execute(
@@ -232,9 +269,8 @@ async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(text, parse_mode="Markdown")
 
 
-# ─────────────────────── /stokduzenle ─────────────────────────────
+# ─────────────────────── /stockset ─────────────────────────────────
 async def cmd_stok_duzenle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Usage: /stockset chicken 10 kg"""
     args = context.args
     if len(args) < 2:
         await update.message.reply_text("Usage: `/stockset chicken 10 kg`", parse_mode="Markdown")
@@ -258,9 +294,8 @@ async def cmd_stok_duzenle(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Invalid quantity.")
 
 
-# ─────────────────────── /stokkullan ──────────────────────────────
+# ─────────────────────── /stockuse ─────────────────────────────────
 async def cmd_stok_kullan(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Usage: /stockuse chicken 2"""
     args = context.args
     if len(args) < 2:
         await update.message.reply_text("Usage: `/stockuse chicken 2`", parse_mode="Markdown")
@@ -291,9 +326,8 @@ async def cmd_stok_kullan(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Invalid quantity.")
 
 
-# ─────────────────────── /stoksil ─────────────────────────────────
+# ─────────────────────── /stockdel ─────────────────────────────────
 async def cmd_stok_sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Usage: /stockdel chicken"""
     args = context.args
     if not args:
         await update.message.reply_text("Usage: `/stockdel chicken`", parse_mode="Markdown")
