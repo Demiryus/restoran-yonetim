@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Stock — Restaurant Management</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  :root{--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--yellow:#f59e0b;--card:#1a1d2e;--border:#2a2d3e}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
+  .container{max-width:1200px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+  .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+  @media(max-width:800px){.grid-4{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:480px){.grid-4{grid-template-columns:1fr}}
+  .stat{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .stat h3{font-size:.72rem;text-transform:uppercase;color:#666;letter-spacing:.07em;margin-bottom:6px}
+  .stat .val{font-size:1.6rem;font-weight:700}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;font-weight:500;text-decoration:none;color:#fff;white-space:nowrap}
+  .btn-primary{background:#3b82f6}
+  .btn-warning{background:#d97706}
+  .btn-ghost{background:transparent;border:1px solid #374151;color:#aaa}
+  .btn-danger{background:#ef4444}
+  .tbl{width:100%;border-collapse:collapse;font-size:.875rem}
+  .tbl th{text-align:left;padding:10px 12px;color:#888;font-weight:500;font-size:.75rem;border-bottom:1px solid var(--border);text-transform:uppercase;white-space:nowrap}
+  .tbl td{padding:10px 12px;border-bottom:1px solid #1e2133;vertical-align:middle}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:rgba(255,255,255,.02)}
+  .tbl .actions{opacity:0;transition:.15s}
+  .tbl tr:hover .actions{opacity:1}
+  /* search + filter */
+  .toolbar{display:flex;gap:10px;margin-bottom:18px;flex-wrap:wrap;align-items:center}
+  .toolbar input[type=text]{flex:1;min-width:200px;background:#1a1d2e;border:1px solid #2a2d3e;color:#e0e0e0;padding:9px 14px;border-radius:8px;font-size:.9rem}
+  .toolbar input[type=text]:focus{outline:none;border-color:#3b82f6}
+  .cat-chip{padding:5px 14px;border-radius:20px;font-size:.78rem;text-decoration:none;color:#888;background:#1a1d2e;border:1px solid #2a2d3e;cursor:pointer;white-space:nowrap}
+  .cat-chip.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+  /* status indicators */
+  .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px;flex-shrink:0}
+  .status-dot.ok{background:#3b82f6}
+  .status-dot.low{background:#f59e0b}
+  .status-dot.critical{background:#ef4444}
+  .bar-bg{background:#0f1117;border-radius:3px;height:5px;width:80px;overflow:hidden;display:inline-block;vertical-align:middle;margin-left:6px}
+  .bar-fill{height:100%;border-radius:3px}
+  .bar-fill.ok{background:#3b82f6}
+  .bar-fill.low{background:#f59e0b}
+  .bar-fill.critical{background:#ef4444}
+  /* qty colors */
+  .qty-ok{color:#3b82f6;font-weight:700;font-size:1rem}
+  .qty-low{color:#f59e0b;font-weight:700;font-size:1rem}
+  .qty-critical{color:#ef4444;font-weight:700;font-size:1rem}
+  /* modal */
+  .modal-backdrop{display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:200;align-items:center;justify-content:center}
+  .modal-backdrop.open{display:flex}
+  .modal{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:14px;padding:28px;width:100%;max-width:440px}
+  .modal h2{font-size:1rem;font-weight:700;margin-bottom:20px}
+  .form-group{margin-bottom:14px}
+  .form-group label{display:block;font-size:.78rem;color:#888;margin-bottom:5px}
+  .form-group input,.form-group select{width:100%;background:#0f1117;border:1px solid #2a2d3e;color:#e0e0e0;padding:9px 12px;border-radius:7px;font-size:.9rem}
+  .form-group input:focus,.form-group select:focus{outline:none;border-color:#3b82f6}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .btn-row{display:flex;justify-content:flex-end;gap:10px;margin-top:20px}
+  .empty{color:#555;text-align:center;padding:50px}
+  .cat-badge{font-size:.68rem;background:#1e2133;color:#555;padding:2px 7px;border-radius:10px;text-transform:uppercase;letter-spacing:.04em}
+  .price-tag{font-size:.78rem;color:#555}
+  .store-tag{font-size:.72rem;color:#444;font-style:italic}
+  .low-alert{background:#1a1200;border:1px solid #78350f;border-radius:10px;padding:12px 16px;margin-bottom:18px;font-size:.85rem;color:#fbbf24}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" style="color:#888;text-decoration:none;font-size:1.2rem">←</a>
+  <div style="font-size:1.1rem;font-weight:700;color:#fff">📦 Stock Management</div>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <button class="btn btn-primary" onclick="openAdd()">+ Add Item</button>
+    <button class="btn btn-warning" onclick="openUse()">− Use Stock</button>
+    <a href="/export/stock.csv" class="btn" style="background:#6366f1">⬇ Export CSV</a>
+    <a href="/" class="btn" style="background:#374151">← Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- STAT CARDS -->
+  <div class="grid-4">
+    <div class="stat">
+      <h3>Total Items</h3>
+      <div class="val" style="color:#3b82f6">{{ total_count }}</div>
+      <div style="font-size:.78rem;color:#666;margin-top:4px">in inventory</div>
+    </div>
+    <div class="stat">
+      <h3>Low / Critical</h3>
+      <div class="val" style="color:{% if low_count > 0 %}#ef4444{% else %}#22c55e{% endif %}">{{ low_count }}</div>
+      <div style="font-size:.78rem;color:#666;margin-top:4px">below minimum</div>
+    </div>
+    <div class="stat">
+      <h3>Est. Value</h3>
+      <div class="val" style="color:#f59e0b">${{ "%.0f"|format(total_value) }}</div>
+      <div style="font-size:.78rem;color:#666;margin-top:4px">at last purchase price</div>
+    </div>
+    <div class="stat">
+      <h3>Categories</h3>
+      <div class="val" style="color:#6366f1">{{ all_cats|length }}</div>
+      <div style="font-size:.78rem;color:#666;margin-top:4px">product groups</div>
+    </div>
+  </div>
+
+  <!-- LOW STOCK ALERT -->
+  {% set low_items = items | selectattr('min_quantity') | selectattr('current_quantity') | list %}
+  {% set low_items = low_items | selectattr('current_quantity', 'le', low_items[0].min_quantity if low_items else 0) | list %}
+  {# simpler: recompute in loop #}
+  {% set ns = namespace(lows=[]) %}
+  {% for i in items %}
+    {% if i.min_quantity and i.min_quantity > 0 and i.current_quantity <= i.min_quantity %}
+      {% set ns.lows = ns.lows + [i] %}
+    {% endif %}
+  {% endfor %}
+  {% if ns.lows %}
+  <div class="low-alert">
+    ⚠ <strong>Low Stock:</strong>
+    {% for i in ns.lows %}
+      <strong>{{ i.item_name }}</strong> ({{ "%.1f"|format(i.current_quantity) }} {{ i.unit or '' }}){% if not loop.last %}, {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <!-- TOOLBAR: search + category chips -->
+  <form method="get" action="/stock" id="filterForm">
+    <div class="toolbar">
+      <input type="text" name="q" value="{{ q }}" placeholder="Search items…" id="searchInput">
+      <input type="hidden" name="cat" id="catInput" value="{{ cat }}">
+      <a href="/stock" class="cat-chip {% if cat == 'all' %}active{% endif %}"
+         onclick="setCat('all');return false;">All</a>
+      {% for c in all_cats %}
+      <a href="/stock?cat={{ c }}&q={{ q }}" class="cat-chip {% if cat == c %}active{% endif %}"
+         onclick="setCat('{{ c }}');return false;">{{ c }}</a>
+      {% endfor %}
+      {% if q %}<a href="/stock?cat={{ cat }}" class="btn btn-ghost" style="padding:6px 12px;font-size:.8rem">✕ Clear</a>{% endif %}
+    </div>
+  </form>
+
+  <!-- TABLE -->
+  <div class="card" style="padding:0;overflow:hidden">
+    {% if items %}
+    <table class="tbl">
+      <thead><tr>
+        <th>Item</th>
+        <th>Category</th>
+        <th>Quantity</th>
+        <th>Min</th>
+        <th>Last Price</th>
+        <th>Last Updated</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% for i in items %}
+      {% if i.min_quantity and i.min_quantity > 0 %}
+        {% if i.current_quantity <= 0 %}{% set status = 'critical' %}
+        {% elif i.current_quantity <= i.min_quantity %}{% set status = 'low' %}
+        {% else %}{% set status = 'ok' %}{% endif %}
+        {% set bar_pct = [[(i.current_quantity / i.min_quantity * 100)|int, 0]|max, 100]|min %}
+      {% else %}
+        {% set status = 'ok' %}
+        {% set bar_pct = 0 %}
+      {% endif %}
+      <tr>
+        <td>
+          <span class="status-dot {{ status }}"></span>
+          <strong>{{ i.item_name }}</strong>
+        </td>
+        <td><span class="cat-badge">{{ i.category or '—' }}</span></td>
+        <td>
+          <span class="qty-{{ status }}">{{ "%.1f"|format(i.current_quantity) }}</span>
+          <span style="font-size:.8rem;color:#555"> {{ i.unit or '' }}</span>
+          {% if i.min_quantity and i.min_quantity > 0 %}
+          <span class="bar-bg"><span class="bar-fill {{ status }}" style="width:{{ bar_pct }}%"></span></span>
+          {% endif %}
+        </td>
+        <td style="color:#555;font-size:.82rem">
+          {% if i.min_quantity and i.min_quantity > 0 %}{{ i.min_quantity }} {{ i.unit or '' }}{% else %}—{% endif %}
+        </td>
+        <td>
+          {% if i.last_price %}
+          <span class="price-tag">${{ "%.2f"|format(i.last_price) }}</span>
+          {% if i.last_store %}<br><span class="store-tag">{{ i.last_store }}</span>{% endif %}
+          {% else %}
+          <span style="color:#444">—</span>
+          {% endif %}
+        </td>
+        <td style="color:#555;font-size:.8rem">
+          {% if i.days_ago == 0 %}today
+          {% elif i.days_ago == 1 %}yesterday
+          {% elif i.days_ago %}{{ i.days_ago }}d ago
+          {% else %}—{% endif %}
+        </td>
+        <td class="actions" style="white-space:nowrap">
+          <button class="btn btn-warning" style="padding:4px 10px;font-size:.75rem"
+            onclick="openQuickUse('{{ i.item_name }}', '{{ i.current_quantity }}', '{{ i.unit or '' }}')">− Use</button>
+          <button class="btn btn-primary" style="padding:4px 10px;font-size:.75rem;margin-left:4px"
+            onclick="openEdit('{{ i.item_name }}', {{ i.current_quantity }}, '{{ i.unit or '' }}', {{ i.min_quantity or 0 }}, '{{ i.category or '' }}')">Edit</button>
+          <form method="post" action="/stok/{{ i.item_name | urlencode }}/sil" style="display:inline;margin-left:4px"
+                onsubmit="return confirm('Delete {{ i.item_name }}?')">
+            <button type="submit" class="btn btn-danger" style="padding:4px 10px;font-size:.75rem">✕</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p class="empty">
+      {% if q %}No items matching "{{ q }}".{% else %}No stock items yet. Add your first item above.{% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+</div>
+
+<!-- ADD MODAL -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal">
+    <h2>Add / Update Stock Item</h2>
+    <form method="post" action="/stok/guncelle">
+      <input type="hidden" name="redirect_to" value="/stock?q={{ q }}&cat={{ cat }}">
+      <div class="form-group">
+        <label>Item Name</label>
+        <input type="text" name="item_name" list="all-items-list" required autofocus placeholder="e.g. Chicken Breast">
+        <datalist id="all-items-list">
+          {% for a in all_items %}<option value="{{ a.item_name }}">{% endfor %}
+        </datalist>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantity</label>
+          <input type="number" name="quantity" step="0.01" min="0" required placeholder="0">
+        </div>
+        <div class="form-group">
+          <label>Unit</label>
+          <input type="text" name="unit" placeholder="kg / unit / litre">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Min Quantity (alert threshold)</label>
+        <input type="number" name="min_quantity" step="0.01" min="0" value="0" placeholder="0 = no alert">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('addModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-backdrop" id="editModal">
+  <div class="modal">
+    <h2>Edit Stock Item</h2>
+    <form method="post" action="/stok/guncelle">
+      <input type="hidden" name="redirect_to" value="/stock?q={{ q }}&cat={{ cat }}">
+      <div class="form-group">
+        <label>Item Name</label>
+        <input type="text" id="edit-name" name="item_name" required readonly
+               style="color:#888;background:#0a0c14">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Quantity</label>
+          <input type="number" id="edit-qty" name="quantity" step="0.01" min="0" required>
+        </div>
+        <div class="form-group">
+          <label>Unit</label>
+          <input type="text" id="edit-unit" name="unit">
+        </div>
+      </div>
+      <div class="form-group">
+        <label>Min Quantity</label>
+        <input type="number" id="edit-min" name="min_quantity" step="0.01" min="0">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('editModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- USE MODAL -->
+<div class="modal-backdrop" id="useModal">
+  <div class="modal">
+    <h2>Use / Deduct Stock</h2>
+    <form method="post" action="/stok/kullan">
+      <input type="hidden" name="redirect_to" value="/stock?q={{ q }}&cat={{ cat }}">
+      <div class="form-group">
+        <label>Item Name</label>
+        <input type="text" id="use-name" name="item_name" list="all-items-list" required placeholder="Start typing…">
+      </div>
+      <div class="form-group">
+        <label>Quantity to Deduct</label>
+        <input type="number" id="use-qty" name="quantity" step="0.01" min="0.01" required placeholder="e.g. 2.5">
+      </div>
+      <div id="use-info" style="font-size:.82rem;color:#888;margin-bottom:8px;min-height:18px"></div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('useModal')">Cancel</button>
+        <button type="submit" class="btn btn-warning">Deduct</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+function openModal(id){ document.getElementById(id).classList.add('open') }
+function closeModal(id){ document.getElementById(id).classList.remove('open') }
+document.querySelectorAll('.modal-backdrop').forEach(b=>{
+  b.addEventListener('click',e=>{ if(e.target===b) b.classList.remove('open') })
+})
+
+function openAdd(){ openModal('addModal') }
+function openUse(){ document.getElementById('use-name').value=''; document.getElementById('use-info').textContent=''; openModal('useModal'); setTimeout(()=>document.getElementById('use-name').focus(),50) }
+function openQuickUse(name, qty, unit){
+  document.getElementById('use-name').value = name
+  document.getElementById('use-qty').value = ''
+  document.getElementById('use-info').textContent = `Current: ${parseFloat(qty).toFixed(1)} ${unit}`
+  openModal('useModal')
+  setTimeout(()=>document.getElementById('use-qty').focus(),50)
+}
+function openEdit(name, qty, unit, min, cat){
+  document.getElementById('edit-name').value = name
+  document.getElementById('edit-qty').value  = qty
+  document.getElementById('edit-unit').value = unit
+  document.getElementById('edit-min').value  = min
+  openModal('editModal')
+  setTimeout(()=>document.getElementById('edit-qty').focus(),50)
+}
+
+// Search on Enter, category chips
+function setCat(c){
+  document.getElementById('catInput').value = c
+  document.getElementById('filterForm').submit()
+}
+document.getElementById('searchInput').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){ e.preventDefault(); document.getElementById('filterForm').submit() }
+})
+// Auto-submit search after 400ms pause
+let searchTimer
+document.getElementById('searchInput').addEventListener('input',()=>{
+  clearTimeout(searchTimer)
+  searchTimer = setTimeout(()=>document.getElementById('filterForm').submit(), 400)
+})
+</script>
+</body>
+</html>

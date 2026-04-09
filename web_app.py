@@ -384,9 +384,54 @@ async def gelir_duzenle(income_id: int, amount: float = Form(...), description: 
 
 # ─────────────────────────── Stok ─────────────────────────────────
 
+@app.get("/stock", response_class=HTMLResponse)
+async def stock_page(_auth: None = Depends(require_auth), q: str = "", cat: str = "all"):
+    where = "WHERE 1=1"
+    params: list = []
+    if q:
+        where += " AND lower(s.item_name) LIKE lower(?)"
+        params.append(f"%{q}%")
+    if cat and cat != "all":
+        where += " AND s.category = ?"
+        params.append(cat)
+
+    items = fetch_all(f"""
+        SELECT s.*,
+               (SELECT unit_price FROM receipt_items
+                WHERE lower(item_name)=lower(s.item_name) AND unit_price > 0
+                ORDER BY id DESC LIMIT 1) as last_price,
+               (SELECT r.store_name FROM receipt_items ri
+                JOIN receipts r ON ri.receipt_id=r.id
+                WHERE lower(ri.item_name)=lower(s.item_name) AND ri.unit_price > 0
+                ORDER BY ri.id DESC LIMIT 1) as last_store,
+               CAST(julianday('now','localtime') - julianday(s.last_updated) AS INTEGER) as days_ago
+        FROM stock s {where} ORDER BY s.category, s.item_name
+    """, tuple(params))
+
+    all_cats = [r["category"] for r in fetch_all(
+        "SELECT DISTINCT category FROM stock WHERE category IS NOT NULL ORDER BY category"
+    )]
+
+    total_value = sum((i["current_quantity"] or 0) * (i["last_price"] or 0) for i in items)
+    low_count   = sum(1 for i in items if i["min_quantity"] and i["current_quantity"] <= i["min_quantity"])
+    all_items   = fetch_all("SELECT item_name FROM stock ORDER BY item_name")  # for datalist
+
+    return templates.TemplateResponse("stock.html", {
+        "request": {},
+        "items": items,
+        "all_cats": all_cats,
+        "total_value": total_value,
+        "low_count": low_count,
+        "total_count": len(items),
+        "all_items": all_items,
+        "q": q,
+        "cat": cat,
+    })
+
 @app.post("/stok/guncelle")
 async def stok_guncelle(item_name: str = Form(...), quantity: float = Form(...),
-                         unit: str = Form(""), min_quantity: float = Form(0), _auth: None = Depends(require_auth)):
+                         unit: str = Form(""), min_quantity: float = Form(0),
+                         redirect_to: str = Form("/stock"), _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("""
         INSERT INTO stock (item_name, current_quantity, unit, min_quantity, last_updated)
@@ -398,10 +443,11 @@ async def stok_guncelle(item_name: str = Form(...), quantity: float = Form(...),
             last_updated     = datetime('now','localtime')
     """, (item_name, quantity, unit, min_quantity, quantity, unit, min_quantity))
     db.commit(); db.close()
-    return RedirectResponse("/?tab=stok", status_code=303)
+    return RedirectResponse(redirect_to, status_code=303)
 
 @app.post("/stok/kullan")
-async def stok_kullan(item_name: str = Form(...), quantity: float = Form(...), _auth: None = Depends(require_auth)):
+async def stok_kullan(item_name: str = Form(...), quantity: float = Form(...),
+                      redirect_to: str = Form("/stock"), _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("""
         UPDATE stock SET
@@ -410,14 +456,14 @@ async def stok_kullan(item_name: str = Form(...), quantity: float = Form(...), _
         WHERE item_name = ?
     """, (quantity, item_name))
     db.commit(); db.close()
-    return RedirectResponse("/?tab=stok", status_code=303)
+    return RedirectResponse(redirect_to, status_code=303)
 
 @app.post("/stok/{item_name}/sil")
 async def stok_sil(item_name: str, _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("DELETE FROM stock WHERE item_name=?", (item_name,))
     db.commit(); db.close()
-    return RedirectResponse("/?tab=stok", status_code=303)
+    return RedirectResponse("/stock", status_code=303)
 
 
 # ─────────────────────────── API ──────────────────────────────────
