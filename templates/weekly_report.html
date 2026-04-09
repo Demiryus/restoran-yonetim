@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Weekly Report — Restaurant Management</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  :root{--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--yellow:#f59e0b;--card:#1a1d2e;--border:#2a2d3e}
+  header{background:#1a1d2e;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
+  .container{max-width:1200px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+  .grid-3{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:20px}
+  .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:20px}
+  @media(max-width:800px){.grid-3{grid-template-columns:1fr 1fr}.grid-2{grid-template-columns:1fr}}
+  .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px}
+  .stat-card h3{font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:#666;margin-bottom:8px}
+  .stat-card .val{font-size:1.8rem;font-weight:700}
+  .stat-card .sub{font-size:.8rem;color:#666;margin-top:4px}
+  .section-title{font-size:1rem;font-weight:600;color:#ccc;margin-bottom:14px}
+  .tbl{width:100%;border-collapse:collapse;font-size:.875rem}
+  .tbl th{text-align:left;padding:10px 12px;color:#888;font-weight:500;font-size:.75rem;border-bottom:1px solid var(--border);text-transform:uppercase}
+  .tbl td{padding:10px 12px;border-bottom:1px solid #1e2133}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:rgba(255,255,255,.03)}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;font-weight:500;text-decoration:none;color:#fff}
+  .bar-bg{background:#1e2133;border-radius:4px;height:8px;overflow:hidden;margin-top:6px}
+  .bar-fill{height:8px;border-radius:4px;transition:width .4s}
+  .up{color:#ef4444} .down{color:#22c55e} .neutral{color:#888}
+  .cat-icon{font-size:1rem;margin-right:6px}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" style="color:#888;text-decoration:none;font-size:1.2rem">←</a>
+  <div style="font-size:1.1rem;font-weight:700;color:#fff">📊 Weekly Cost Report</div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <a href="/suppliers" class="btn" style="background:#6366f1">🏪 Suppliers</a>
+    <a href="/" class="btn" style="background:#374151">← Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Summary cards -->
+  <div class="grid-3">
+    <div class="stat-card">
+      <h3>This Week</h3>
+      <div class="val" style="color:#3b82f6">${{ "%.2f"|format(this_total) }}</div>
+      <div class="sub">Total expenses (last 7 days)</div>
+    </div>
+    <div class="stat-card">
+      <h3>Last Week</h3>
+      <div class="val" style="color:#888">${{ "%.2f"|format(last_total) }}</div>
+      <div class="sub">Total expenses (7–14 days ago)</div>
+    </div>
+    <div class="stat-card">
+      <h3>Week-over-Week</h3>
+      {% if week_diff > 0 %}
+        <div class="val" style="color:#ef4444">+${{ "%.2f"|format(week_diff) }}</div>
+        <div class="sub up">▲ {{ week_pct }}% more than last week</div>
+      {% elif week_diff < 0 %}
+        <div class="val" style="color:#22c55e">${{ "%.2f"|format(week_diff) }}</div>
+        <div class="sub down">▼ {{ week_pct|abs }}% less than last week</div>
+      {% else %}
+        <div class="val" style="color:#888">$0.00</div>
+        <div class="sub neutral">Same as last week</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- 14-day chart -->
+  <div class="card">
+    <div class="section-title">Daily Spend — Last 14 Days</div>
+    <canvas id="dailyChart" height="100"></canvas>
+  </div>
+
+  <!-- Category comparison -->
+  <div class="grid-2">
+    <div class="card">
+      <div class="section-title">Category Breakdown — This Week vs Last Week</div>
+      {% if comparison %}
+      {% set max_val = comparison[0].this_week if comparison else 1 %}
+      <table class="tbl">
+        <thead><tr>
+          <th>Category</th>
+          <th>This Week</th>
+          <th>Last Week</th>
+          <th>Change</th>
+        </tr></thead>
+        <tbody>
+        {% for c in comparison %}
+        <tr>
+          <td>
+            <span class="cat-icon">
+              {% if c.category == 'meat' %}🥩
+              {% elif c.category == 'bread' %}🍞
+              {% elif c.category == 'vegetable' %}🥦
+              {% elif c.category == 'fruit' %}🍎
+              {% elif c.category == 'dairy' %}🧀
+              {% elif c.category == 'beverage' %}🥤
+              {% elif c.category == 'cleaning' %}🧹
+              {% elif c.category == 'packaging' %}📦
+              {% else %}📋{% endif %}
+            </span>{{ c.category }}
+          </td>
+          <td>
+            <span style="font-weight:600;color:#3b82f6">${{ "%.2f"|format(c.this_week) }}</span>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ [(c.this_week / max_val * 100)|round, 100]|min }}%;background:#3b82f6"></div></div>
+          </td>
+          <td style="color:#555">${{ "%.2f"|format(c.last_week) }}</td>
+          <td>
+            {% if c.pct is not none %}
+              {% if c.pct > 5 %}
+                <span style="color:#ef4444;font-weight:600">▲ +{{ c.pct }}%</span>
+              {% elif c.pct < -5 %}
+                <span style="color:#22c55e;font-weight:600">▼ {{ c.pct }}%</span>
+              {% else %}
+                <span style="color:#888">~ {{ c.pct }}%</span>
+              {% endif %}
+            {% else %}
+              <span style="color:#555">new</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color:#555;text-align:center;padding:40px">Not enough data yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- Top items this week -->
+    <div class="card">
+      <div class="section-title">Top Items This Week</div>
+      {% if top_items %}
+      {% set max_item = top_items[0].total_spent if top_items else 1 %}
+      <table class="tbl">
+        <thead><tr>
+          <th>Item</th>
+          <th>Qty</th>
+          <th>Spent</th>
+        </tr></thead>
+        <tbody>
+        {% for i in top_items %}
+        <tr>
+          <td>
+            <div style="font-weight:500">{{ i.item_name }}</div>
+            <div class="bar-bg"><div class="bar-fill" style="width:{{ [(i.total_spent / max_item * 100)|round, 100]|min }}%;background:#6366f1"></div></div>
+          </td>
+          <td style="color:#888;white-space:nowrap">{{ "%.1f"|format(i.total_qty) }} {{ i.unit or '' }}</td>
+          <td style="color:#22c55e;font-weight:600">${{ "%.2f"|format(i.total_spent) }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color:#555;text-align:center;padding:40px">No items this week.</p>
+      {% endif %}
+    </div>
+  </div>
+
+</div>
+
+<script>
+const daily = {{ daily_json|safe }};
+const labels = daily.map(d => d.date);
+const vals   = daily.map(d => d.total);
+const colors = daily.map(d => d.week === 'this' ? '#3b82f6' : '#374151');
+
+new Chart(document.getElementById('dailyChart'), {
+  type: 'bar',
+  data: {
+    labels,
+    datasets: [{
+      label: 'Expense',
+      data: vals,
+      backgroundColor: colors,
+      borderRadius: 5,
+    }]
+  },
+  options: {
+    plugins: {
+      legend: { display: false },
+      tooltip: { callbacks: { label: ctx => ' $' + ctx.parsed.y.toFixed(2) } }
+    },
+    scales: {
+      x: { grid: { color: '#1e2133' }, ticks: { color: '#666' } },
+      y: { grid: { color: '#1e2133' }, ticks: { color: '#666', callback: v => '$' + v } }
+    }
+  }
+});
+</script>
+</body>
+</html>

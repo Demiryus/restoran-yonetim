@@ -176,7 +176,11 @@
 
 <!-- HEADER -->
 <header>
-  <div style="font-size:1.1rem;font-weight:700;color:#fff">Restaurant Management</div>
+  <div style="display:flex;align-items:center;gap:12px">
+    <div style="font-size:1.1rem;font-weight:700;color:#fff">Restaurant Management</div>
+    <a href="/suppliers"     style="font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;border:1px solid #6366f1;border-radius:6px">🏪 Suppliers</a>
+    <a href="/weekly-report" style="font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;border:1px solid #6366f1;border-radius:6px">📊 Weekly</a>
+  </div>
   <div class="period-tabs">
     <a href="/?period=today" class="{% if period=='today' %}active{% endif %}">Today</a>
     <a href="/?period=week"  class="{% if period=='week'  %}active{% endif %}">7 Days</a>

@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Suppliers — Restaurant Management</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  :root{--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--yellow:#f59e0b;--card:#1a1d2e;--border:#2a2d3e}
+  header{background:#1a1d2e;border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
+  .container{max-width:1300px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+  .section-title{font-size:1rem;font-weight:600;color:#ccc;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between}
+  .tbl{width:100%;border-collapse:collapse;font-size:.875rem}
+  .tbl th{text-align:left;padding:10px 12px;color:#888;font-weight:500;font-size:.75rem;border-bottom:1px solid var(--border);text-transform:uppercase}
+  .tbl td{padding:10px 12px;border-bottom:1px solid #1e2133}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:rgba(255,255,255,.03)}
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;font-weight:500;text-decoration:none;color:#fff}
+  .badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:.72rem;font-weight:600}
+  .up{color:#ef4444} .down{color:#22c55e} .neutral{color:#888}
+  .store-section{margin-bottom:32px}
+  .store-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;cursor:pointer;user-select:none}
+  .store-name{font-size:1.05rem;font-weight:700;color:#fff}
+  .store-meta{font-size:.8rem;color:#888;margin-top:2px}
+  .store-stat{background:#0f1117;border-radius:8px;padding:10px 16px;text-align:center}
+  .store-stat .val{font-size:1.3rem;font-weight:700;color:#3b82f6}
+  .store-stat .lbl{font-size:.72rem;color:#666;margin-top:2px}
+  .store-stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:14px}
+  .items-table{display:none}
+  .items-table.open{display:block}
+  .price-tag{font-size:.75rem;padding:2px 7px;border-radius:4px;font-weight:600}
+  .price-up{background:#7f1d1d;color:#fca5a5}
+  .price-down{background:#14532d;color:#86efac}
+  .price-same{background:#1e2133;color:#888}
+  .alert-card{background:#1a1d2e;border:1px solid #ef4444;border-radius:12px;padding:20px;margin-bottom:20px}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" style="color:#888;text-decoration:none;font-size:1.2rem">←</a>
+  <div style="font-size:1.1rem;font-weight:700;color:#fff">🏪 Supplier Tracker</div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <a href="/weekly-report" class="btn" style="background:#6366f1">📊 Weekly Report</a>
+    <a href="/" class="btn" style="background:#374151">← Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+
+  {% if price_alerts %}
+  <div class="alert-card">
+    <div class="section-title" style="color:#ef4444">⚠️ Price Increases Detected ({{ price_alerts|length }} items)</div>
+    <table class="tbl">
+      <thead><tr>
+        <th>Store</th><th>Item</th><th>Previous</th><th>Current</th><th>Change</th>
+      </tr></thead>
+      <tbody>
+      {% for a in price_alerts %}
+      <tr>
+        <td style="color:#aaa">{{ a.store_name }}</td>
+        <td style="font-weight:600">{{ a.item_name }}</td>
+        <td style="color:#888">${{ "%.2f"|format(a.prev_price) }}/{{ a.unit or 'unit' }}</td>
+        <td style="color:#ef4444;font-weight:600">${{ "%.2f"|format(a.last_price) }}/{{ a.unit or 'unit' }}</td>
+        <td><span class="price-tag price-up">+{{ a.change_pct }}%</span></td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+
+  <!-- Summary Table -->
+  <div class="card">
+    <div class="section-title">
+      <span>All Suppliers ({{ stores|length }})</span>
+      <span style="font-size:.75rem;color:#555;font-weight:400">click a supplier row to expand items</span>
+    </div>
+    {% if stores %}
+    <table class="tbl">
+      <thead><tr>
+        <th>Supplier</th>
+        <th>Receipts</th>
+        <th>Total Spent</th>
+        <th>Avg / Visit</th>
+        <th>First Order</th>
+        <th>Last Order</th>
+      </tr></thead>
+      <tbody>
+      {% for s in stores %}
+      <tr style="cursor:pointer" onclick="toggleStore('{{ loop.index }}')">
+        <td style="font-weight:600;color:#fff">{{ s.store_name or '—' }}</td>
+        <td style="color:#888">{{ s.receipt_count }}</td>
+        <td style="color:#22c55e;font-weight:600">${{ "%.2f"|format(s.total_spent) }}</td>
+        <td style="color:#aaa">${{ "%.2f"|format(s.avg_per_visit) }}</td>
+        <td style="color:#666;font-size:.8rem">{{ s.first_visit or '—' }}</td>
+        <td style="color:#666;font-size:.8rem">{{ s.last_visit or '—' }}</td>
+      </tr>
+      <!-- Expanded items row -->
+      <tr id="store-{{ loop.index }}" style="display:none">
+        <td colspan="6" style="padding:0;background:#0f1117">
+          {% set items = store_items.get(s.store_name, []) %}
+          {% if items %}
+          <table class="tbl" style="margin:0">
+            <thead><tr>
+              <th style="padding-left:32px">Item</th>
+              <th>Category</th>
+              <th>Total Qty</th>
+              <th>Total Spent</th>
+              <th>Last Price</th>
+              <th>Prev Price</th>
+              <th>Change</th>
+            </tr></thead>
+            <tbody>
+            {% for i in items %}
+            <tr>
+              <td style="padding-left:32px;color:#ddd">{{ i.item_name }}</td>
+              <td><span class="badge" style="background:#1e2133;color:#888">{{ i.category or '—' }}</span></td>
+              <td style="color:#aaa">{{ "%.1f"|format(i.total_qty) }} {{ i.unit or '' }}</td>
+              <td style="color:#3b82f6">${{ "%.2f"|format(i.total_spent) }}</td>
+              <td style="font-weight:600">
+                {% if i.last_price %}${{ "%.2f"|format(i.last_price) }}{% else %}—{% endif %}
+              </td>
+              <td style="color:#666">
+                {% if i.prev_price %}${{ "%.2f"|format(i.prev_price) }}{% else %}—{% endif %}
+              </td>
+              <td>
+                {% if i.last_price and i.prev_price %}
+                  {% set chg = ((i.last_price - i.prev_price) / i.prev_price * 100)|round(1) %}
+                  {% if chg > 2 %}
+                    <span class="price-tag price-up">+{{ chg }}%</span>
+                  {% elif chg < -2 %}
+                    <span class="price-tag price-down">{{ chg }}%</span>
+                  {% else %}
+                    <span class="price-tag price-same">~</span>
+                  {% endif %}
+                {% else %}—{% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+          </table>
+          {% else %}
+          <p style="padding:12px 32px;color:#555;font-size:.82rem">No item details available.</p>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#555;text-align:center;padding:40px">No supplier data yet. Send receipt photos via the Telegram bot.</p>
+    {% endif %}
+  </div>
+
+</div>
+
+<script>
+function toggleStore(idx) {
+  const row = document.getElementById('store-' + idx);
+  row.style.display = row.style.display === 'none' ? 'table-row' : 'none';
+}
+</script>
+</body>
+</html>

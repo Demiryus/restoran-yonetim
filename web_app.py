@@ -486,6 +486,171 @@ async def export_stock(_auth: None = Depends(require_auth)):
     )
 
 
+# ─────────────────────────── Suppliers ───────────────────────────
+
+@app.get("/suppliers", response_class=HTMLResponse)
+async def suppliers_page(request: Request, _auth: None = Depends(require_auth)):
+    # Per-store summary
+    stores = fetch_all("""
+        SELECT
+            store_name,
+            COUNT(*)                          AS receipt_count,
+            ROUND(SUM(total_amount), 2)       AS total_spent,
+            ROUND(AVG(total_amount), 2)       AS avg_per_visit,
+            MAX(receipt_date)                 AS last_visit,
+            MIN(receipt_date)                 AS first_visit
+        FROM receipts
+        WHERE parse_status = 'success' AND store_name IS NOT NULL AND store_name != ''
+        GROUP BY store_name
+        ORDER BY total_spent DESC
+    """)
+
+    # Top items per store with latest unit price
+    store_items = {}
+    for s in stores:
+        name = s["store_name"]
+        items = fetch_all("""
+            SELECT
+                ri.item_name,
+                ri.category,
+                ri.unit,
+                SUM(ri.quantity)                                          AS total_qty,
+                ROUND(SUM(ri.total_price), 2)                            AS total_spent,
+                (SELECT unit_price FROM receipt_items ri2
+                 JOIN receipts r2 ON ri2.receipt_id = r2.id
+                 WHERE r2.store_name = ? AND ri2.item_name = ri.item_name
+                   AND ri2.unit_price > 0
+                 ORDER BY r2.receipt_date DESC LIMIT 1)                   AS last_price,
+                (SELECT unit_price FROM receipt_items ri3
+                 JOIN receipts r3 ON ri3.receipt_id = r3.id
+                 WHERE r3.store_name = ? AND ri3.item_name = ri.item_name
+                   AND ri3.unit_price > 0
+                 ORDER BY r3.receipt_date DESC LIMIT 1 OFFSET 1)          AS prev_price
+            FROM receipt_items ri
+            JOIN receipts r ON ri.receipt_id = r.id
+            WHERE r.store_name = ? AND r.parse_status = 'success'
+            GROUP BY ri.item_name
+            ORDER BY total_spent DESC
+            LIMIT 20
+        """, (name, name, name))
+        store_items[name] = items
+
+    # Price change alerts: items whose last price > prev price by >5%
+    price_alerts = fetch_all("""
+        SELECT
+            r.store_name,
+            ri.item_name,
+            ri.unit,
+            ri.unit_price AS last_price,
+            prev.unit_price AS prev_price,
+            ROUND((ri.unit_price - prev.unit_price) * 100.0 / prev.unit_price, 1) AS change_pct
+        FROM receipt_items ri
+        JOIN receipts r ON ri.receipt_id = r.id
+        JOIN (
+            SELECT ri2.item_name, r2.store_name, ri2.unit_price,
+                   ROW_NUMBER() OVER (PARTITION BY ri2.item_name, r2.store_name
+                                      ORDER BY r2.receipt_date DESC) AS rn
+            FROM receipt_items ri2
+            JOIN receipts r2 ON ri2.receipt_id = r2.id
+            WHERE ri2.unit_price > 0 AND r2.parse_status = 'success'
+        ) prev ON prev.item_name = ri.item_name
+              AND prev.store_name = r.store_name
+              AND prev.rn = 2
+        WHERE ri.unit_price > 0
+          AND r.parse_status = 'success'
+          AND ri.id = (
+              SELECT MAX(ri3.id) FROM receipt_items ri3
+              JOIN receipts r3 ON ri3.receipt_id = r3.id
+              WHERE ri3.item_name = ri.item_name AND r3.store_name = r.store_name
+                AND ri3.unit_price > 0
+          )
+          AND (ri.unit_price - prev.unit_price) * 100.0 / prev.unit_price > 5
+        ORDER BY change_pct DESC
+        LIMIT 20
+    """)
+
+    return templates.TemplateResponse("suppliers.html", {
+        "request": request,
+        "stores": stores,
+        "store_items": store_items,
+        "price_alerts": price_alerts,
+    })
+
+
+# ────────────────────────── Weekly Report ─────────────────────────
+
+@app.get("/weekly-report", response_class=HTMLResponse)
+async def weekly_report_page(request: Request, _auth: None = Depends(require_auth)):
+    # This week vs last week by category
+    this_week = fetch_all("""
+        SELECT ri.category, ROUND(SUM(ri.total_price), 2) AS total
+        FROM receipt_items ri
+        JOIN receipts r ON ri.receipt_id = r.id
+        WHERE date(r.created_at) >= date('now','localtime','-7 days')
+          AND r.parse_status = 'success'
+          AND ri.category IS NOT NULL
+        GROUP BY ri.category ORDER BY total DESC
+    """)
+    last_week = fetch_all("""
+        SELECT ri.category, ROUND(SUM(ri.total_price), 2) AS total
+        FROM receipt_items ri
+        JOIN receipts r ON ri.receipt_id = r.id
+        WHERE date(r.created_at) >= date('now','localtime','-14 days')
+          AND date(r.created_at) <  date('now','localtime','-7 days')
+          AND r.parse_status = 'success'
+          AND ri.category IS NOT NULL
+        GROUP BY ri.category ORDER BY total DESC
+    """)
+
+    # Merge into comparison dict
+    tw = {r["category"]: r["total"] for r in this_week}
+    lw = {r["category"]: r["total"] for r in last_week}
+    all_cats = sorted(set(tw) | set(lw))
+    comparison = []
+    for cat in all_cats:
+        t = tw.get(cat, 0)
+        l = lw.get(cat, 0)
+        diff = t - l
+        pct  = round((diff / l * 100), 1) if l else None
+        comparison.append({"category": cat, "this_week": t, "last_week": l, "diff": diff, "pct": pct})
+    comparison.sort(key=lambda x: x["this_week"], reverse=True)
+
+    # Daily spend for last 14 days
+    daily = []
+    from datetime import timedelta as td
+    for i in range(13, -1, -1):
+        d = (date.today() - td(days=i)).isoformat()
+        g = scalar("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=? AND parse_status='success'", (d,))
+        daily.append({"date": d[-5:], "total": g, "week": "last" if i >= 7 else "this"})
+
+    # Top items this week
+    top_items = fetch_all("""
+        SELECT ri.item_name, ri.category, ri.unit,
+               ROUND(SUM(ri.quantity), 2) AS total_qty,
+               ROUND(SUM(ri.total_price), 2) AS total_spent
+        FROM receipt_items ri
+        JOIN receipts r ON ri.receipt_id = r.id
+        WHERE date(r.created_at) >= date('now','localtime','-7 days')
+          AND r.parse_status = 'success'
+        GROUP BY ri.item_name
+        ORDER BY total_spent DESC LIMIT 15
+    """)
+
+    this_total = sum(r["total"] for r in this_week)
+    last_total = sum(r["total"] for r in last_week)
+
+    return templates.TemplateResponse("weekly_report.html", {
+        "request": request,
+        "comparison": comparison,
+        "daily_json": json.dumps(daily),
+        "top_items": top_items,
+        "this_total": this_total,
+        "last_total": last_total,
+        "week_diff": this_total - last_total,
+        "week_pct": round((this_total - last_total) / last_total * 100, 1) if last_total else None,
+    })
+
+
 # ─────────────────────────── Başlangıç ────────────────────────────
 
 @app.on_event("startup")

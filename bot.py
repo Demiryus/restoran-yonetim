@@ -306,6 +306,67 @@ async def job_daily_summary(context):
             print(f"[SUMMARY] Failed to send to {uid}: {e}")
 
 
+# ──────────────────────────── /weeklyreport ───────────────────────
+async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
+
+    db = get_db()
+
+    # This week vs last week totals
+    this_w = db.execute("""
+        SELECT COALESCE(SUM(total_amount),0) FROM receipts
+        WHERE date(created_at) >= date('now','localtime','-7 days')
+          AND parse_status='success'
+    """).fetchone()[0]
+    last_w = db.execute("""
+        SELECT COALESCE(SUM(total_amount),0) FROM receipts
+        WHERE date(created_at) >= date('now','localtime','-14 days')
+          AND date(created_at) <  date('now','localtime','-7 days')
+          AND parse_status='success'
+    """).fetchone()[0]
+
+    # Category breakdown this week
+    cats = db.execute("""
+        SELECT ri.category, ROUND(SUM(ri.total_price),2) AS total
+        FROM receipt_items ri
+        JOIN receipts r ON ri.receipt_id=r.id
+        WHERE date(r.created_at) >= date('now','localtime','-7 days')
+          AND r.parse_status='success' AND ri.category IS NOT NULL
+        GROUP BY ri.category ORDER BY total DESC LIMIT 8
+    """).fetchall()
+
+    # Top supplier this week
+    top_store = db.execute("""
+        SELECT store_name, ROUND(SUM(total_amount),2) AS total
+        FROM receipts
+        WHERE date(created_at) >= date('now','localtime','-7 days')
+          AND parse_status='success' AND store_name IS NOT NULL
+        GROUP BY store_name ORDER BY total DESC LIMIT 1
+    """).fetchone()
+    db.close()
+
+    diff = this_w - last_w
+    trend = f"▲ +${diff:.2f} more" if diff > 0 else (f"▼ ${abs(diff):.2f} less" if diff < 0 else "same as last week")
+
+    cat_lines = "\n".join(
+        f"  {'🥩' if c['category']=='meat' else '🍞' if c['category']=='bread' else '🥦' if c['category']=='vegetable' else '🧀' if c['category']=='dairy' else '📦'} {c['category']}: ${c['total']:.2f}"
+        for c in cats
+    ) or "  (no data)"
+
+    store_line = f"\n🏪 Top supplier: *{top_store['store_name']}* (${top_store['total']:.2f})" if top_store else ""
+
+    await update.message.reply_text(
+        f"📊 *Weekly Cost Report*\n\n"
+        f"This week : *${this_w:.2f} CAD*\n"
+        f"Last week : ${last_w:.2f} CAD\n"
+        f"Trend     : {trend}\n\n"
+        f"*By Category (this week):*\n{cat_lines}"
+        f"{store_line}\n\n"
+        f"[Full report]({WEB_URL}/weekly-report)",
+        parse_mode="Markdown",
+    )
+
+
 # ──────────────────────────── /stock ───────────────────────────────
 async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update): await _deny(update); return
@@ -419,7 +480,8 @@ def main():
     app.add_handler(CommandHandler("stock",    cmd_stok))
     app.add_handler(CommandHandler("stockset", cmd_stok_duzenle))
     app.add_handler(CommandHandler("stockuse", cmd_stok_kullan))
-    app.add_handler(CommandHandler("stockdel", cmd_stok_sil))
+    app.add_handler(CommandHandler("stockdel",     cmd_stok_sil))
+    app.add_handler(CommandHandler("weeklyreport", cmd_weekly_report))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     # Daily summary job
