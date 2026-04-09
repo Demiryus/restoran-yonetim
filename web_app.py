@@ -2,12 +2,16 @@
 Web Dashboard — FastAPI
 Çalıştır: uvicorn web_app:app --reload --port 8000
 """
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, HTTPException, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse, StreamingResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+import csv
+import io
 import json
+import secrets
 from datetime import date, timedelta
 
 import os
@@ -17,6 +21,22 @@ from ai_parser import parse_receipt
 # Railway Volume'da kalıcı photos klasörü: PHOTOS_DIR=/data/photos
 PHOTOS_DIR = Path(os.getenv("PHOTOS_DIR", "photos"))
 PHOTOS_DIR.mkdir(parents=True, exist_ok=True)
+
+# HTTP Basic Auth — set DASHBOARD_USER and DASHBOARD_PASS in env vars.
+# If not set, auth is disabled (useful for local dev).
+DASH_USER = os.getenv("DASHBOARD_USER", "")
+DASH_PASS = os.getenv("DASHBOARD_PASS", "")
+_security = HTTPBasic(auto_error=False)
+
+def require_auth(credentials: HTTPBasicCredentials = Depends(_security)):
+    if not DASH_USER or not DASH_PASS:
+        return  # auth disabled — no env vars set
+    if credentials is None:
+        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"}, detail="Login required")
+    ok_user = secrets.compare_digest(credentials.username.encode(), DASH_USER.encode())
+    ok_pass = secrets.compare_digest(credentials.password.encode(), DASH_PASS.encode())
+    if not (ok_user and ok_pass):
+        raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"}, detail="Invalid credentials")
 
 app = FastAPI(title="Restoran Yönetim")
 app.mount("/photos", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
@@ -45,7 +65,7 @@ def scalar(query, params=()):
 # ─────────────────────────── Ana sayfa ────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, period: str = "today"):
+async def dashboard(request: Request, period: str = "today", _auth: None = Depends(require_auth)):
     if period == "today":
         date_filter_r = "date(r.created_at) = date('now','localtime')"
         date_filter_i = "date(i.income_date) = date('now','localtime')"
@@ -149,7 +169,7 @@ async def dashboard(request: Request, period: str = "today"):
 # ─────────────────────────── Fişler ───────────────────────────────
 
 @app.get("/fis/{receipt_id}", response_class=HTMLResponse)
-async def fis_detay(request: Request, receipt_id: int):
+async def fis_detay(request: Request, receipt_id: int, _auth: None = Depends(require_auth)):
     fis = fetch_one("SELECT * FROM receipts WHERE id=?", (receipt_id,))
     if not fis:
         raise HTTPException(status_code=404, detail="Fiş bulunamadı")
@@ -165,7 +185,7 @@ async def fis_detay(request: Request, receipt_id: int):
     })
 
 @app.post("/fis/{receipt_id}/sil")
-async def fis_sil(receipt_id: int):
+async def fis_sil(receipt_id: int, _auth: None = Depends(require_auth)):
     db = get_db()
     row = db.execute("SELECT photo_path, type FROM receipts WHERE id=?", (receipt_id,)).fetchone()
     if not row:
@@ -211,7 +231,7 @@ async def fis_sil(receipt_id: int):
 
 
 @app.post("/fis/{receipt_id}/retry")
-async def fis_retry(receipt_id: int):
+async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
     """Re-run AI parsing on a failed/pending receipt."""
     db = get_db()
     row = db.execute("SELECT photo_path, type FROM receipts WHERE id=?", (receipt_id,)).fetchone()
@@ -296,7 +316,7 @@ async def fis_retry(receipt_id: int):
 # ─────────────────────────── Gelir ────────────────────────────────
 
 @app.post("/gelir/ekle")
-async def gelir_ekle(amount: float = Form(...), description: str = Form(""), income_date: str = Form("")):
+async def gelir_ekle(amount: float = Form(...), description: str = Form(""), income_date: str = Form(""), _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("INSERT INTO income (amount, description, income_date) VALUES (?,?,?)",
                (amount, description, income_date or date.today().isoformat()))
@@ -304,14 +324,14 @@ async def gelir_ekle(amount: float = Form(...), description: str = Form(""), inc
     return RedirectResponse("/", status_code=303)
 
 @app.post("/gelir/{income_id}/sil")
-async def gelir_sil(income_id: int):
+async def gelir_sil(income_id: int, _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("DELETE FROM income WHERE id=?", (income_id,))
     db.commit(); db.close()
     return RedirectResponse("/", status_code=303)
 
 @app.post("/gelir/{income_id}/duzenle")
-async def gelir_duzenle(income_id: int, amount: float = Form(...), description: str = Form("")):
+async def gelir_duzenle(income_id: int, amount: float = Form(...), description: str = Form(""), _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("UPDATE income SET amount=?, description=? WHERE id=?", (amount, description, income_id))
     db.commit(); db.close()
@@ -322,7 +342,7 @@ async def gelir_duzenle(income_id: int, amount: float = Form(...), description: 
 
 @app.post("/stok/guncelle")
 async def stok_guncelle(item_name: str = Form(...), quantity: float = Form(...),
-                         unit: str = Form(""), min_quantity: float = Form(0)):
+                         unit: str = Form(""), min_quantity: float = Form(0), _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("""
         INSERT INTO stock (item_name, current_quantity, unit, min_quantity, last_updated)
@@ -337,7 +357,7 @@ async def stok_guncelle(item_name: str = Form(...), quantity: float = Form(...),
     return RedirectResponse("/?tab=stok", status_code=303)
 
 @app.post("/stok/kullan")
-async def stok_kullan(item_name: str = Form(...), quantity: float = Form(...)):
+async def stok_kullan(item_name: str = Form(...), quantity: float = Form(...), _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("""
         UPDATE stock SET
@@ -349,7 +369,7 @@ async def stok_kullan(item_name: str = Form(...), quantity: float = Form(...)):
     return RedirectResponse("/?tab=stok", status_code=303)
 
 @app.post("/stok/{item_name}/sil")
-async def stok_sil(item_name: str):
+async def stok_sil(item_name: str, _auth: None = Depends(require_auth)):
     db = get_db()
     db.execute("DELETE FROM stock WHERE item_name=?", (item_name,))
     db.commit(); db.close()
@@ -359,13 +379,111 @@ async def stok_sil(item_name: str):
 # ─────────────────────────── API ──────────────────────────────────
 
 @app.get("/api/summary")
-async def api_summary():
+async def api_summary(_auth: None = Depends(require_auth)):
     return {
         "bugun_gelir": scalar("SELECT COALESCE(SUM(amount),0) FROM income WHERE date(income_date)=date('now','localtime')"),
         "bugun_gider": scalar("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=date('now','localtime')"),
         "toplam_stok": scalar("SELECT COUNT(*) FROM stock"),
         "dusuk_stok":  scalar("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity"),
     }
+
+
+# ─────────────────────────── CSV Export ──────────────────────────
+
+@app.get("/export/receipts.csv")
+async def export_receipts(period: str = "all", _auth: None = Depends(require_auth)):
+    """Download all receipts as CSV."""
+    if period == "today":
+        where = "WHERE date(r.created_at) = date('now','localtime')"
+    elif period == "week":
+        where = "WHERE date(r.created_at) >= date('now','localtime','-7 days')"
+    elif period == "month":
+        where = "WHERE strftime('%Y-%m',r.created_at) = strftime('%Y-%m','now','localtime')"
+    else:
+        where = ""
+
+    rows = fetch_all(f"""
+        SELECT r.id, r.created_at, r.store_name, r.receipt_date,
+               r.total_amount, r.currency, r.type, r.parse_status,
+               ri.item_name, ri.category, ri.quantity, ri.unit,
+               ri.unit_price, ri.total_price
+        FROM receipts r
+        LEFT JOIN receipt_items ri ON ri.receipt_id = r.id
+        {where}
+        ORDER BY r.created_at DESC, ri.id
+    """)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "receipt_id", "created_at", "store_name", "receipt_date",
+        "total_amount", "currency", "type", "parse_status",
+        "item_name", "category", "quantity", "unit", "unit_price", "item_total"
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["created_at"], r["store_name"], r["receipt_date"],
+            r["total_amount"], r["currency"], r["type"], r["parse_status"],
+            r["item_name"], r["category"], r["quantity"], r["unit"],
+            r["unit_price"], r["total_price"]
+        ])
+
+    output.seek(0)
+    filename = f"receipts_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.get("/export/income.csv")
+async def export_income(period: str = "all", _auth: None = Depends(require_auth)):
+    """Download all income records as CSV."""
+    if period == "today":
+        where = "WHERE date(income_date) = date('now','localtime')"
+    elif period == "week":
+        where = "WHERE date(income_date) >= date('now','localtime','-7 days')"
+    elif period == "month":
+        where = "WHERE strftime('%Y-%m',income_date) = strftime('%Y-%m','now','localtime')"
+    else:
+        where = ""
+
+    rows = fetch_all(f"SELECT id, income_date, amount, currency, description FROM income {where} ORDER BY income_date DESC")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "date", "amount", "currency", "description"])
+    for r in rows:
+        writer.writerow([r["id"], r["income_date"], r["amount"], r["currency"], r["description"]])
+
+    output.seek(0)
+    filename = f"income_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.get("/export/stock.csv")
+async def export_stock(_auth: None = Depends(require_auth)):
+    """Download current stock as CSV."""
+    rows = fetch_all("SELECT item_name, category, current_quantity, unit, min_quantity, last_updated FROM stock ORDER BY category, item_name")
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["item_name", "category", "current_quantity", "unit", "min_quantity", "last_updated"])
+    for r in rows:
+        writer.writerow([r["item_name"], r["category"], r["current_quantity"], r["unit"], r["min_quantity"], r["last_updated"]])
+
+    output.seek(0)
+    filename = f"stock_{date.today().isoformat()}.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
 
 
 # ─────────────────────────── Başlangıç ────────────────────────────

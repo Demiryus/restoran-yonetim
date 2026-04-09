@@ -11,7 +11,7 @@ Commands:
   Photo                    - Process receipt
 """
 import os
-from datetime import datetime
+from datetime import datetime, time
 from dotenv import load_dotenv
 from telegram import Update
 from telegram.ext import (
@@ -29,9 +29,47 @@ WEB_URL    = os.getenv("WEB_URL", "http://localhost:8000")
 PHOTOS_DIR = os.getenv("PHOTOS_DIR", "photos")
 os.makedirs(PHOTOS_DIR, exist_ok=True)
 
+# Comma-separated Telegram user IDs allowed to use the bot.
+# Example: ALLOWED_USER_IDS=123456789,987654321
+# Leave empty to allow everyone (not recommended for production).
+_raw_ids = os.getenv("ALLOWED_USER_IDS", "")
+ALLOWED_USER_IDS: set[int] = {
+    int(x.strip()) for x in _raw_ids.split(",") if x.strip().isdigit()
+}
+
+# Daily summary time (UTC). Override with SUMMARY_TIME_UTC=HH:MM
+_summary_time = os.getenv("SUMMARY_TIME_UTC", "20:00").split(":")
+SUMMARY_TIME = time(int(_summary_time[0]), int(_summary_time[1]))
+
+# Comma-separated user IDs that receive the daily summary.
+# Defaults to ALLOWED_USER_IDS if not set separately.
+_raw_notify = os.getenv("NOTIFY_USER_IDS", _raw_ids)
+NOTIFY_USER_IDS: list[int] = [
+    int(x.strip()) for x in _raw_notify.split(",") if x.strip().isdigit()
+]
+
+
+# ──────────────────────────── Auth guard ──────────────────────────
+def _is_allowed(update: Update) -> bool:
+    if not ALLOWED_USER_IDS:
+        return True  # open mode — no restrictions
+    return update.effective_user.id in ALLOWED_USER_IDS
+
+async def _deny(update: Update):
+    uid = update.effective_user.id
+    name = update.effective_user.username or update.effective_user.first_name
+    await update.message.reply_text(
+        f"Access denied. Your user ID is `{uid}`.\n"
+        "Ask the administrator to add you to the allowed list.",
+        parse_mode="Markdown",
+    )
+    print(f"[AUTH] Blocked user: {name} (id={uid})")
+
 
 # ──────────────────────────── /start ──────────────────────────────
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update):
+        await _deny(update); return
     await update.message.reply_text(
         "*Restaurant Management System*\n\n"
         "Send a receipt photo to add items to stock automatically.\n"
@@ -59,6 +97,9 @@ def _tuketim_modu(caption: str | None) -> bool:
     return any(k in low for k in TUKETIM_KELIMELERI)
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update):
+        await _deny(update); return
+
     caption  = update.message.caption or ""
     tuketim  = _tuketim_modu(caption)
     mod_text = "deducting from stock" if tuketim else "adding to stock"
@@ -100,7 +141,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         parsed, raw = parse_receipt(photo_path)
 
-        # Update receipt with parsed data
         cur.execute("""
             UPDATE receipts SET
                 store_name      = ?,
@@ -184,7 +224,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     except Exception as e:
-        # Mark receipt as failed — photo and record are already saved
         db.execute("""
             UPDATE receipts SET
                 parse_status = 'failed',
@@ -205,6 +244,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ──────────────────────────── /income ──────────────────────────────
 async def cmd_gelir(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
     args = context.args
     if not args:
         await update.message.reply_text("Usage: `/income 1500 Lunch service`", parse_mode="Markdown")
@@ -222,30 +262,53 @@ async def cmd_gelir(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ──────────────────────────── /summary ─────────────────────────────
 async def cmd_ozet(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
+    await _send_summary(update.effective_chat.id, context)
+
+
+async def _send_summary(chat_id: int, context):
+    """Build and send today's summary to a chat. Reused by scheduled job."""
     db    = get_db()
     gider = db.execute("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
     gelir = db.execute("SELECT COALESCE(SUM(amount),0)       FROM income   WHERE date(income_date)=date('now','localtime')").fetchone()[0]
     n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
     n_fail= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='failed'").fetchone()[0]
+    low_stock = db.execute("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity").fetchone()[0]
     db.close()
 
     net   = gelir - gider
-    emoji = "Profitable" if net >= 0 else "In loss"
-    fail_note = f"\n\u26A0\uFE0F {n_fail} receipt(s) failed to parse — check dashboard" if n_fail else ""
+    emoji = "\U0001F4C8" if net >= 0 else "\U0001F4C9"
+    fail_note  = f"\n\u26A0\uFE0F {n_fail} receipt(s) failed — retry at dashboard" if n_fail else ""
+    stock_note = f"\n\U0001F534 {low_stock} item(s) LOW in stock" if low_stock else ""
 
-    await update.message.reply_text(
-        f"*Today's Summary*\n\n"
-        f"Income  : {gelir:>10.2f} CAD\n"
-        f"Expense : {gider:>10.2f} CAD  ({n_fis} receipt(s))\n"
-        f"{'─'*30}\n"
-        f"Net     : {net:>10.2f} CAD  ({emoji})"
-        f"{fail_note}",
+    await context.bot.send_message(
+        chat_id=chat_id,
+        text=(
+            f"{emoji} *Daily Summary*\n\n"
+            f"Income  : {gelir:>10.2f} CAD\n"
+            f"Expense : {gider:>10.2f} CAD  ({n_fis} receipt(s))\n"
+            f"{'─'*30}\n"
+            f"Net     : {net:>10.2f} CAD  ({'Profitable' if net >= 0 else 'In loss'})"
+            f"{fail_note}{stock_note}\n\n"
+            f"[Open Dashboard]({WEB_URL})"
+        ),
         parse_mode="Markdown",
     )
 
 
+# ──────────────────────── Scheduled daily summary ──────────────────
+async def job_daily_summary(context):
+    """Runs daily at SUMMARY_TIME_UTC — sends summary to all NOTIFY_USER_IDS."""
+    for uid in NOTIFY_USER_IDS:
+        try:
+            await _send_summary(uid, context)
+        except Exception as e:
+            print(f"[SUMMARY] Failed to send to {uid}: {e}")
+
+
 # ──────────────────────────── /stock ───────────────────────────────
 async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
     db   = get_db()
     rows = db.execute(
         "SELECT item_name, category, current_quantity, unit, min_quantity "
@@ -263,7 +326,7 @@ async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if r["category"] != cur_cat:
             cur_cat = r["category"]
             text += f"\n*{cur_cat or 'Other'}*\n"
-        warn  = " [LOW]" if r["min_quantity"] and r["current_quantity"] <= r["min_quantity"] else ""
+        warn  = " \U0001F534" if r["min_quantity"] and r["current_quantity"] <= r["min_quantity"] else ""
         text += f"  - {r['item_name']}: {r['current_quantity']:.1f} {r['unit'] or ''}{warn}\n"
 
     await update.message.reply_text(text, parse_mode="Markdown")
@@ -271,6 +334,7 @@ async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─────────────────────── /stockset ─────────────────────────────────
 async def cmd_stok_duzenle(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
     args = context.args
     if len(args) < 2:
         await update.message.reply_text("Usage: `/stockset chicken 10 kg`", parse_mode="Markdown")
@@ -296,6 +360,7 @@ async def cmd_stok_duzenle(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─────────────────────── /stockuse ─────────────────────────────────
 async def cmd_stok_kullan(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
     args = context.args
     if len(args) < 2:
         await update.message.reply_text("Usage: `/stockuse chicken 2`", parse_mode="Markdown")
@@ -328,6 +393,7 @@ async def cmd_stok_kullan(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ─────────────────────── /stockdel ─────────────────────────────────
 async def cmd_stok_sil(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not _is_allowed(update): await _deny(update); return
     args = context.args
     if not args:
         await update.message.reply_text("Usage: `/stockdel chicken`", parse_mode="Markdown")
@@ -355,6 +421,18 @@ def main():
     app.add_handler(CommandHandler("stockuse", cmd_stok_kullan))
     app.add_handler(CommandHandler("stockdel", cmd_stok_sil))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+
+    # Daily summary job
+    if NOTIFY_USER_IDS:
+        app.job_queue.run_daily(job_daily_summary, time=SUMMARY_TIME)
+        print(f"Daily summary scheduled at {SUMMARY_TIME} UTC → {NOTIFY_USER_IDS}")
+    else:
+        print("No NOTIFY_USER_IDS set — daily summary disabled")
+
+    if ALLOWED_USER_IDS:
+        print(f"Auth enabled — allowed users: {ALLOWED_USER_IDS}")
+    else:
+        print("WARNING: ALLOWED_USER_IDS not set — bot is open to everyone")
 
     print(f"Bot basladi | Dashboard: {WEB_URL}")
     app.run_polling(drop_pending_updates=True)

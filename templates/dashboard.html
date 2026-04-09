@@ -187,6 +187,14 @@
     <button class="btn btn-success" onclick="openModal('incomeModal')">+ Add Income</button>
     <button class="btn btn-primary" onclick="openModal('stockAddModal')">+ Add Stock</button>
     <button class="btn btn-warning" style="padding:9px 18px" onclick="openModal('stockUseModal')">- Use Stock</button>
+    <div style="position:relative;display:inline-block">
+      <button class="btn" style="background:#6366f1;padding:9px 14px" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='block'?'none':'block'">⬇ Export</button>
+      <div style="display:none;position:absolute;right:0;top:110%;background:#1e1e1e;border:1px solid #333;border-radius:8px;min-width:180px;z-index:100;padding:6px 0">
+        <a href="/export/receipts.csv?period={{ period }}" style="display:block;padding:8px 16px;color:#e0e0e0;text-decoration:none;font-size:.85rem" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''">📄 Receipts ({{ label }})</a>
+        <a href="/export/income.csv?period={{ period }}"   style="display:block;padding:8px 16px;color:#e0e0e0;text-decoration:none;font-size:.85rem" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''">💰 Income ({{ label }})</a>
+        <a href="/export/stock.csv"                        style="display:block;padding:8px 16px;color:#e0e0e0;text-decoration:none;font-size:.85rem" onmouseover="this.style.background='#2a2a2a'" onmouseout="this.style.background=''">📦 Stock (current)</a>
+      </div>
+    </div>
   </div>
 </header>
 
