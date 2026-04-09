@@ -17,6 +17,8 @@ def get_db():
 
 def init_db():
     conn = get_db()
+
+    # Step 1: Create base tables (without new columns, safe for existing DBs)
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS receipts (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,8 +30,6 @@ def init_db():
             total_amount    REAL DEFAULT 0,
             currency        TEXT DEFAULT 'CAD',
             type            TEXT DEFAULT 'expense',
-            parse_status    TEXT DEFAULT 'success',
-            parse_error     TEXT,
             raw_ai_response TEXT,
             created_at      TEXT DEFAULT (datetime('now','localtime'))
         );
@@ -64,8 +64,21 @@ def init_db():
             income_date TEXT DEFAULT (date('now','localtime')),
             created_at  TEXT DEFAULT (datetime('now','localtime'))
         );
+    """)
 
-        -- Performance indexes
+    # Step 2: Migrate — add new columns if they don't exist yet
+    for col, definition in [
+        ("parse_status", "TEXT DEFAULT 'success'"),
+        ("parse_error",  "TEXT"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE receipts ADD COLUMN {col} {definition}")
+            conn.commit()
+        except Exception:
+            pass  # column already exists
+
+    # Step 3: Create indexes (parse_status column now guaranteed to exist)
+    conn.executescript("""
         CREATE INDEX IF NOT EXISTS idx_receipts_created   ON receipts(created_at DESC);
         CREATE INDEX IF NOT EXISTS idx_receipts_status    ON receipts(parse_status);
         CREATE INDEX IF NOT EXISTS idx_receipt_items_rid  ON receipt_items(receipt_id);
@@ -73,16 +86,6 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_stock_name         ON stock(item_name);
         CREATE INDEX IF NOT EXISTS idx_income_date        ON income(income_date DESC);
     """)
-
-    # Migrate existing DBs: add new columns if they don't exist yet
-    for col, definition in [
-        ("parse_status", "TEXT DEFAULT 'success'"),
-        ("parse_error",  "TEXT"),
-    ]:
-        try:
-            conn.execute(f"ALTER TABLE receipts ADD COLUMN {col} {definition}")
-        except Exception:
-            pass  # column already exists
 
     conn.commit()
     conn.close()
