@@ -12,10 +12,12 @@ load_dotenv()
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
 
 PARSE_PROMPT = (
-    "Fişi JSON'a çevir. SADECE JSON yaz, başka hiçbir şey ekleme.\n"
-    '{"store_name":"...","receipt_date":"YYYY-MM-DD or null","total_amount":0.00,"currency":"CAD",'
+    "Parse this receipt into JSON. Output ONLY valid JSON, nothing else.\n"
+    '{"store_name":"...","receipt_date":"YYYY-MM-DD or null","subtotal":0.00,"tax_amount":0.00,'
+    '"total_amount":0.00,"currency":"CAD","tax_label":"GST|HST|PST or null",'
     '"items":[{"item_name":"original name","category":"meat|bread|vegetable|fruit|dairy|beverage|cleaning|packaging|other",'
-    '"quantity":0.0,"unit":"kg|adet|litre|paket","unit_price":0.00,"total_price":0.00}]}\n'
+    '"quantity":0.0,"unit":"kg|unit|litre|pack","unit_price":0.00,"total_price":0.00}]}\n'
+    "Extract tax (GST/HST/PST) into tax_amount. total_amount = subtotal + tax_amount. "
     "Use null for unknowns. Keep item names in their original language."
 )
 

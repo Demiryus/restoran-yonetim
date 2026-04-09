@@ -83,10 +83,22 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
         date_filter_i = "1=1"
         label = "Tüm Zamanlar"
 
-    total_gider = scalar(f"SELECT COALESCE(SUM(total_amount),0) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
-    total_gelir = scalar(f"SELECT COALESCE(SUM(amount),0) FROM income i WHERE {date_filter_i}")
-    net         = total_gelir - total_gider
-    n_fis       = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
+    # Date filter for manual expenses (same logic as receipts)
+    if period == "today":
+        date_filter_m = "date(expense_date) = date('now','localtime')"
+    elif period == "week":
+        date_filter_m = "date(expense_date) >= date('now','localtime','-7 days')"
+    elif period == "month":
+        date_filter_m = "strftime('%Y-%m',expense_date) = strftime('%Y-%m','now','localtime')"
+    else:
+        date_filter_m = "1=1"
+
+    receipt_gider  = scalar(f"SELECT COALESCE(SUM(total_amount),0) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
+    manual_gider   = scalar(f"SELECT COALESCE(SUM(amount),0) FROM manual_expenses WHERE {date_filter_m}")
+    total_gider    = receipt_gider + manual_gider
+    total_gelir    = scalar(f"SELECT COALESCE(SUM(amount),0) FROM income i WHERE {date_filter_i}")
+    net            = total_gelir - total_gider
+    n_fis          = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
 
     # Failed/pending receipts (always shown regardless of period)
     failed_receipts = fetch_all(
@@ -149,20 +161,47 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
         f"SELECT * FROM income i WHERE {date_filter_i} ORDER BY created_at DESC LIMIT 20"
     )
 
+    son_manual = fetch_all(
+        f"SELECT * FROM manual_expenses WHERE {date_filter_m} ORDER BY expense_date DESC, created_at DESC LIMIT 30"
+    )
+
+    # Budget vs actual (always current month)
+    budgets = fetch_all("SELECT * FROM budgets ORDER BY category")
+    budget_status = []
+    for b in budgets:
+        if b["scope"] == "receipt":
+            spent = scalar("""
+                SELECT COALESCE(SUM(ri.total_price),0)
+                FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id
+                WHERE ri.category=? AND strftime('%Y-%m',r.created_at)=strftime('%Y-%m','now','localtime')
+                  AND r.parse_status='success'
+            """, (b["category"],))
+        else:
+            spent = scalar("""
+                SELECT COALESCE(SUM(amount),0) FROM manual_expenses
+                WHERE category=? AND strftime('%Y-%m',expense_date)=strftime('%Y-%m','now','localtime')
+            """, (b["category"],))
+        pct = round(spent / b["monthly_limit"] * 100, 1) if b["monthly_limit"] else 0
+        budget_status.append({**b, "spent": spent, "pct": min(pct, 100), "raw_pct": pct,
+                               "over": spent > b["monthly_limit"]})
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "period": period, "label": label,
         "total_gelir": total_gelir, "total_gider": total_gider,
+        "receipt_gider": receipt_gider, "manual_gider": manual_gider,
         "net": net, "n_fis": n_fis,
         "son_fisler": son_fisler,
         "fis_items": fis_items,
         "son_gelirler": son_gelirler,
+        "son_manual": son_manual,
         "kategori_json": json.dumps(kategori_data),
         "trend_json": json.dumps(trend),
         "dusuk_stok": dusuk_stok,
         "stok": stok,
         "total_stok_degeri": total_stok_degeri,
         "failed_receipts": failed_receipts,
+        "budget_status": budget_status,
     })
 
 
@@ -386,6 +425,190 @@ async def api_summary(_auth: None = Depends(require_auth)):
         "toplam_stok": scalar("SELECT COUNT(*) FROM stock"),
         "dusuk_stok":  scalar("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity"),
     }
+
+
+# ──────────────────────── Manual Expenses ─────────────────────────
+
+EXPENSE_CATEGORIES = ["rent","utilities","salary","insurance","maintenance","marketing","supplies","other"]
+
+@app.post("/expenses/ekle")
+async def expenses_ekle(
+    amount: float = Form(...),
+    description: str = Form(""),
+    category: str = Form("other"),
+    expense_date: str = Form(""),
+    tax_amount: float = Form(0),
+    is_recurring: int = Form(0),
+    recur_day: int = Form(0),
+    _auth: None = Depends(require_auth),
+):
+    db = get_db()
+    db.execute(
+        "INSERT INTO manual_expenses (amount, description, category, expense_date, tax_amount, is_recurring, recur_day) VALUES (?,?,?,?,?,?,?)",
+        (amount, description, category, expense_date or date.today().isoformat(),
+         tax_amount, is_recurring, recur_day or None)
+    )
+    db.commit(); db.close()
+    return RedirectResponse("/", status_code=303)
+
+@app.post("/expenses/{exp_id}/sil")
+async def expenses_sil(exp_id: int, _auth: None = Depends(require_auth)):
+    db = get_db()
+    db.execute("DELETE FROM manual_expenses WHERE id=?", (exp_id,))
+    db.commit(); db.close()
+    return RedirectResponse("/", status_code=303)
+
+@app.post("/expenses/{exp_id}/duzenle")
+async def expenses_duzenle(
+    exp_id: int,
+    amount: float = Form(...),
+    description: str = Form(""),
+    category: str = Form("other"),
+    expense_date: str = Form(""),
+    tax_amount: float = Form(0),
+    _auth: None = Depends(require_auth),
+):
+    db = get_db()
+    db.execute(
+        "UPDATE manual_expenses SET amount=?,description=?,category=?,expense_date=?,tax_amount=? WHERE id=?",
+        (amount, description, category, expense_date or date.today().isoformat(), tax_amount, exp_id)
+    )
+    db.commit(); db.close()
+    return RedirectResponse("/", status_code=303)
+
+
+# ───────────────────────────── Budgets ────────────────────────────
+
+@app.post("/budgets/guncelle")
+async def budgets_guncelle(
+    category: str = Form(...),
+    monthly_limit: float = Form(...),
+    scope: str = Form("receipt"),
+    _auth: None = Depends(require_auth),
+):
+    db = get_db()
+    db.execute("""
+        INSERT INTO budgets (category, monthly_limit, scope, updated_at)
+        VALUES (?,?,?, datetime('now','localtime'))
+        ON CONFLICT(category) DO UPDATE SET
+            monthly_limit = ?, scope = ?, updated_at = datetime('now','localtime')
+    """, (category, monthly_limit, scope, monthly_limit, scope))
+    db.commit(); db.close()
+    return RedirectResponse("/", status_code=303)
+
+@app.post("/budgets/{budget_id}/sil")
+async def budgets_sil(budget_id: int, _auth: None = Depends(require_auth)):
+    db = get_db()
+    db.execute("DELETE FROM budgets WHERE id=?", (budget_id,))
+    db.commit(); db.close()
+    return RedirectResponse("/", status_code=303)
+
+
+# ───────────────────────────── Tax Summary ────────────────────────
+
+@app.get("/tax-summary", response_class=HTMLResponse)
+async def tax_summary(request: Request, year: int = None, _auth: None = Depends(require_auth)):
+    if not year:
+        year = date.today().year
+
+    # Monthly tax from receipts
+    receipt_tax = fetch_all("""
+        SELECT strftime('%Y-%m', created_at) AS month,
+               ROUND(SUM(tax_amount),2) AS tax,
+               ROUND(SUM(total_amount),2) AS total,
+               COUNT(*) AS n
+        FROM receipts
+        WHERE strftime('%Y', created_at) = ? AND parse_status='success' AND tax_amount > 0
+        GROUP BY month ORDER BY month
+    """, (str(year),))
+
+    # Monthly tax from manual expenses
+    manual_tax = fetch_all("""
+        SELECT strftime('%Y-%m', expense_date) AS month,
+               ROUND(SUM(tax_amount),2) AS tax,
+               ROUND(SUM(amount),2) AS total
+        FROM manual_expenses
+        WHERE strftime('%Y', expense_date) = ? AND tax_amount > 0
+        GROUP BY month ORDER BY month
+    """, (str(year),))
+
+    # Merge by month
+    months_data = {}
+    for r in receipt_tax:
+        months_data.setdefault(r["month"], {"month": r["month"], "receipt_tax": 0, "manual_tax": 0, "total_tax": 0, "taxable_total": 0})
+        months_data[r["month"]]["receipt_tax"] = r["tax"]
+        months_data[r["month"]]["taxable_total"] += r["total"]
+    for m in manual_tax:
+        months_data.setdefault(m["month"], {"month": m["month"], "receipt_tax": 0, "manual_tax": 0, "total_tax": 0, "taxable_total": 0})
+        months_data[m["month"]]["manual_tax"] = m["tax"]
+        months_data[m["month"]]["taxable_total"] += m["total"]
+    for k in months_data:
+        months_data[k]["total_tax"] = round(months_data[k]["receipt_tax"] + months_data[k]["manual_tax"], 2)
+
+    monthly = sorted(months_data.values(), key=lambda x: x["month"])
+    yearly_tax = round(sum(m["total_tax"] for m in monthly), 2)
+    yearly_taxable = round(sum(m["taxable_total"] for m in monthly), 2)
+
+    # Available years
+    years = fetch_all("""
+        SELECT DISTINCT strftime('%Y', created_at) AS yr FROM receipts
+        WHERE parse_status='success' AND tax_amount > 0
+        UNION
+        SELECT DISTINCT strftime('%Y', expense_date) FROM manual_expenses WHERE tax_amount > 0
+        ORDER BY yr DESC
+    """)
+
+    return templates.TemplateResponse("tax_summary.html", {
+        "request": request,
+        "monthly": monthly,
+        "yearly_tax": yearly_tax,
+        "yearly_taxable": yearly_taxable,
+        "year": year,
+        "years": [r["yr"] for r in years],
+    })
+
+
+# ─────────────────────── Receipts Search/Pagination ───────────────
+
+@app.get("/receipts", response_class=HTMLResponse)
+async def receipts_page(
+    request: Request,
+    q: str = "",
+    page: int = 1,
+    per_page: int = 25,
+    _auth: None = Depends(require_auth),
+):
+    offset = (page - 1) * per_page
+    where_parts = ["r.parse_status = 'success'"]
+    params = []
+
+    if q:
+        where_parts.append("""(
+            r.store_name LIKE ? OR
+            EXISTS (SELECT 1 FROM receipt_items ri WHERE ri.receipt_id=r.id AND ri.item_name LIKE ?)
+        )""")
+        params += [f"%{q}%", f"%{q}%"]
+
+    where = "WHERE " + " AND ".join(where_parts)
+
+    total_count = scalar(f"SELECT COUNT(*) FROM receipts r {where}", tuple(params))
+    total_pages = max(1, (total_count + per_page - 1) // per_page)
+
+    receipts = fetch_all(
+        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.tax_amount, r.currency, r.created_at "
+        f"FROM receipts r {where} ORDER BY r.created_at DESC LIMIT ? OFFSET ?",
+        tuple(params + [per_page, offset])
+    )
+
+    return templates.TemplateResponse("receipts_list.html", {
+        "request": request,
+        "receipts": receipts,
+        "q": q,
+        "page": page,
+        "per_page": per_page,
+        "total_count": total_count,
+        "total_pages": total_pages,
+    })
 
 
 # ─────────────────────────── CSV Export ──────────────────────────

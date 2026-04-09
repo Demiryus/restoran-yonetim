@@ -76,6 +76,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "Add caption *use* / *consume* to deduct from stock instead.\n\n"
         "Commands:\n"
         "`/income 500 Lunch service` — Add income\n"
+        "`/expense 3500 Monthly rent rent` — Add manual expense\n"
         "`/summary` — Today's income/expense summary\n"
         "`/stock` — View stock levels\n"
         "`/stockset chicken 5 kg` — Set stock quantity\n"
@@ -242,6 +243,48 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
 
+# ──────────────────────────── /expense ────────────────────────────
+async def cmd_expense(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Usage: /expense 3500 rent  or  /expense 250 electricity utilities"""
+    if not _is_allowed(update): await _deny(update); return
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: `/expense <amount> <description> [category]`\n\n"
+            "Categories: rent, utilities, salary, insurance, maintenance, marketing, supplies, other\n\n"
+            "Examples:\n"
+            "`/expense 3500 Monthly rent rent`\n"
+            "`/expense 420 Hydro bill utilities`\n"
+            "`/expense 2800 Staff wages salary`",
+            parse_mode="Markdown"
+        )
+        return
+    try:
+        amount = float(args[0])
+        known_cats = {"rent","utilities","salary","insurance","maintenance","marketing","supplies","other"}
+        # Last arg may be a category
+        if len(args) > 2 and args[-1].lower() in known_cats:
+            category = args[-1].lower()
+            desc = " ".join(args[1:-1])
+        else:
+            category = "other"
+            desc = " ".join(args[1:]) if len(args) > 1 else "Manual expense"
+        db = get_db()
+        db.execute(
+            "INSERT INTO manual_expenses (amount, description, category) VALUES (?,?,?)",
+            (amount, desc, category)
+        )
+        db.commit(); db.close()
+        await update.message.reply_text(
+            f"Expense recorded: *{amount:.2f} CAD*\n"
+            f"Description: {desc}\n"
+            f"Category: {category}",
+            parse_mode="Markdown"
+        )
+    except ValueError:
+        await update.message.reply_text("Invalid amount. Example: `/expense 3500 rent rent`", parse_mode="Markdown")
+
+
 # ──────────────────────────── /income ──────────────────────────────
 async def cmd_gelir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update): await _deny(update); return
@@ -274,12 +317,37 @@ async def _send_summary(chat_id: int, context):
     n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
     n_fail= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='failed'").fetchone()[0]
     low_stock = db.execute("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity").fetchone()[0]
+
+    # Budget alerts — categories at or over 80%
+    budget_alerts = db.execute("""
+        SELECT b.category, b.monthly_limit, b.scope,
+               CASE b.scope
+                 WHEN 'receipt' THEN (
+                   SELECT COALESCE(SUM(ri.total_price),0)
+                   FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id
+                   WHERE ri.category=b.category
+                     AND strftime('%Y-%m',r.created_at)=strftime('%Y-%m','now','localtime')
+                     AND r.parse_status='success'
+                 )
+                 ELSE (
+                   SELECT COALESCE(SUM(amount),0) FROM manual_expenses
+                   WHERE category=b.category
+                     AND strftime('%Y-%m',expense_date)=strftime('%Y-%m','now','localtime')
+                 )
+               END AS spent
+        FROM budgets b
+    """).fetchall()
     db.close()
+
+    over_budget  = [r for r in budget_alerts if r["spent"] >= r["monthly_limit"]]
+    near_budget  = [r for r in budget_alerts if 0.8 * r["monthly_limit"] <= r["spent"] < r["monthly_limit"]]
 
     net   = gelir - gider
     emoji = "\U0001F4C8" if net >= 0 else "\U0001F4C9"
-    fail_note  = f"\n\u26A0\uFE0F {n_fail} receipt(s) failed — retry at dashboard" if n_fail else ""
-    stock_note = f"\n\U0001F534 {low_stock} item(s) LOW in stock" if low_stock else ""
+    fail_note   = f"\n\u26A0\uFE0F {n_fail} receipt(s) failed — retry at dashboard" if n_fail else ""
+    stock_note  = f"\n\U0001F534 {low_stock} item(s) LOW in stock" if low_stock else ""
+    over_note   = "".join(f"\n\U0001F6A8 Budget OVER: *{r['category']}* ${r['spent']:.0f}/${r['monthly_limit']:.0f}" for r in over_budget)
+    near_note   = "".join(f"\n\U0001F7E1 Budget 80%+: *{r['category']}* ${r['spent']:.0f}/${r['monthly_limit']:.0f}" for r in near_budget)
 
     await context.bot.send_message(
         chat_id=chat_id,
@@ -289,7 +357,7 @@ async def _send_summary(chat_id: int, context):
             f"Expense : {gider:>10.2f} CAD  ({n_fis} receipt(s))\n"
             f"{'─'*30}\n"
             f"Net     : {net:>10.2f} CAD  ({'Profitable' if net >= 0 else 'In loss'})"
-            f"{fail_note}{stock_note}\n\n"
+            f"{fail_note}{stock_note}{over_note}{near_note}\n\n"
             f"[Open Dashboard]({WEB_URL})"
         ),
         parse_mode="Markdown",
@@ -480,6 +548,7 @@ def main():
     app.add_handler(CommandHandler("stock",    cmd_stok))
     app.add_handler(CommandHandler("stockset", cmd_stok_duzenle))
     app.add_handler(CommandHandler("stockuse", cmd_stok_kullan))
+    app.add_handler(CommandHandler("expense",       cmd_expense))
     app.add_handler(CommandHandler("stockdel",     cmd_stok_sil))
     app.add_handler(CommandHandler("weeklyreport", cmd_weekly_report))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Receipts — Restaurant Management</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  :root{--green:#22c55e;--red:#ef4444;--blue:#3b82f6;--card:#1a1d2e;--border:#2a2d3e}
+  header{background:var(--card);border-bottom:1px solid var(--border);padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
+  .container{max-width:1100px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:20px}
+  .tbl{width:100%;border-collapse:collapse;font-size:.875rem}
+  .tbl th{text-align:left;padding:10px 12px;color:#888;font-weight:500;font-size:.75rem;border-bottom:1px solid var(--border);text-transform:uppercase}
+  .tbl td{padding:10px 12px;border-bottom:1px solid #1e2133}
+  .tbl tr:last-child td{border-bottom:none}
+  .tbl tr:hover td{background:rgba(255,255,255,.03)}
+  .btn{display:inline-flex;align-items:center;padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;font-weight:500;text-decoration:none;color:#fff}
+  .search-bar{display:flex;gap:10px;margin-bottom:20px}
+  .search-bar input{flex:1;background:#1a1d2e;border:1px solid #2a2d3e;color:#e0e0e0;padding:10px 14px;border-radius:8px;font-size:.9rem}
+  .search-bar input:focus{outline:none;border-color:#3b82f6}
+  .search-bar button{background:#3b82f6;color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;font-size:.9rem}
+  .pagination{display:flex;align-items:center;gap:8px;margin-top:20px;justify-content:center}
+  .pagination a{padding:6px 14px;border-radius:7px;text-decoration:none;color:#888;background:#1a1d2e;border:1px solid #2a2d3e;font-size:.85rem}
+  .pagination a.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+  .pagination a.disabled{opacity:.35;pointer-events:none}
+  .count-badge{font-size:.8rem;color:#555;margin-bottom:16px}
+</style>
+</head>
+<body>
+<header>
+  <a href="/" style="color:#888;text-decoration:none;font-size:1.2rem">←</a>
+  <div style="font-size:1.1rem;font-weight:700;color:#fff">🔍 All Receipts</div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <a href="/export/receipts.csv" class="btn" style="background:#6366f1">⬇ Export CSV</a>
+    <a href="/" class="btn" style="background:#374151">← Dashboard</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- Search -->
+  <form method="get" action="/receipts" class="search-bar">
+    <input type="text" name="q" value="{{ q }}"
+           placeholder="Search by store name or item name…" autofocus>
+    <button type="submit">Search</button>
+    {% if q %}<a href="/receipts" class="btn" style="background:#374151">✕ Clear</a>{% endif %}
+  </form>
+
+  <div class="count-badge">
+    {% if q %}
+      {{ total_count }} receipt(s) matching "{{ q }}"
+    {% else %}
+      {{ total_count }} total receipts
+    {% endif %}
+    — page {{ page }} of {{ total_pages }}
+  </div>
+
+  <div class="card" style="padding:0;overflow:hidden">
+    {% if receipts %}
+    <table class="tbl">
+      <thead><tr>
+        <th>#</th>
+        <th>Store</th>
+        <th>Receipt Date</th>
+        <th>Recorded</th>
+        <th>Tax</th>
+        <th>Total</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+      {% for r in receipts %}
+      <tr>
+        <td style="color:#555">{{ r.id }}</td>
+        <td style="font-weight:600">{{ r.store_name or '—' }}</td>
+        <td style="color:#888">{{ r.receipt_date or '—' }}</td>
+        <td style="color:#666;font-size:.82rem">{{ r.created_at[:16] }}</td>
+        <td style="color:#f59e0b;font-size:.82rem">
+          {% if r.tax_amount %}${{ "%.2f"|format(r.tax_amount) }}{% else %}—{% endif %}
+        </td>
+        <td style="font-weight:700;color:#ef4444">-${{ "%.2f"|format(r.total_amount) }} {{ r.currency or '' }}</td>
+        <td>
+          <a href="/fis/{{ r.id }}" class="btn" style="background:#374151;padding:5px 12px;font-size:.78rem">View</a>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:#555;text-align:center;padding:50px">
+      {% if q %}No receipts found for "{{ q }}".{% else %}No receipts yet.{% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- Pagination -->
+  {% if total_pages > 1 %}
+  <div class="pagination">
+    <a href="/receipts?q={{ q }}&page=1" class="{% if page == 1 %}disabled{% endif %}">«</a>
+    <a href="/receipts?q={{ q }}&page={{ page - 1 }}" class="{% if page == 1 %}disabled{% endif %}">‹ Prev</a>
+
+    {% for p in range([1, page-2]|max, [total_pages+1, page+3]|min) %}
+    <a href="/receipts?q={{ q }}&page={{ p }}" class="{% if p == page %}active{% endif %}">{{ p }}</a>
+    {% endfor %}
+
+    <a href="/receipts?q={{ q }}&page={{ page + 1 }}" class="{% if page == total_pages %}disabled{% endif %}">Next ›</a>
+    <a href="/receipts?q={{ q }}&page={{ total_pages }}" class="{% if page == total_pages %}disabled{% endif %}">»</a>
+  </div>
+  {% endif %}
+
+</div>
+</body>
+</html>

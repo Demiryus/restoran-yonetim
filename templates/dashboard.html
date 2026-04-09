@@ -180,6 +180,8 @@
     <div style="font-size:1.1rem;font-weight:700;color:#fff">Restaurant Management</div>
     <a href="/suppliers"     style="font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;border:1px solid #6366f1;border-radius:6px">🏪 Suppliers</a>
     <a href="/weekly-report" style="font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;border:1px solid #6366f1;border-radius:6px">📊 Weekly</a>
+    <a href="/receipts"      style="font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;border:1px solid #6366f1;border-radius:6px">🔍 Receipts</a>
+    <a href="/tax-summary"   style="font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;border:1px solid #6366f1;border-radius:6px">🧾 Tax</a>
   </div>
   <div class="period-tabs">
     <a href="/?period=today" class="{% if period=='today' %}active{% endif %}">Today</a>
@@ -224,7 +226,7 @@
     <div class="card red">
       <h3>Total Expenses</h3>
       <div class="value">${{ "%.2f"|format(total_gider) }}</div>
-      <div class="sub">{{ n_fis }} receipt(s)</div>
+      <div class="sub">{{ n_fis }} receipt(s){% if manual_gider %} + ${{ "%.0f"|format(manual_gider) }} manual{% endif %}</div>
     </div>
     <div class="card {% if net >= 0 %}blue{% else %}red{% endif %}">
       <h3>Net Profit / Loss</h3>
@@ -410,6 +412,44 @@
 
   </div><!-- /main-grid -->
 
+  <!-- BUDGET STATUS -->
+  {% if budget_status %}
+  <div class="card" style="margin-bottom:24px">
+    <div class="section-title">
+      <span>Monthly Budgets</span>
+      <div style="display:flex;gap:8px">
+        <button class="btn" style="background:#6366f1;font-size:.75rem;padding:5px 12px"
+                onclick="openModal('budgetModal')">+ Set Budget</button>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px">
+      {% for b in budget_status %}
+      <div style="background:#0f1117;border-radius:10px;padding:14px;border:1px solid {% if b.over %}#ef4444{% elif b.raw_pct >= 80 %}#f59e0b{% else %}#2a2d3e{% endif %}">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px">
+          <span style="font-weight:600;text-transform:capitalize">{{ b.category }}</span>
+          <form method="post" action="/budgets/{{ b.id }}/sil" style="margin:0">
+            <button style="background:none;border:none;color:#555;cursor:pointer;font-size:.8rem">✕</button>
+          </form>
+        </div>
+        <div style="font-size:.8rem;color:#888;margin-bottom:8px">{{ b.scope }}</div>
+        <div style="background:#1e2133;border-radius:4px;height:8px;overflow:hidden;margin-bottom:8px">
+          <div style="height:8px;border-radius:4px;width:{{ b.pct }}%;background:{% if b.over %}#ef4444{% elif b.raw_pct >= 80 %}#f59e0b{% else %}#22c55e{% endif %};transition:width .4s"></div>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:.8rem">
+          <span style="color:{% if b.over %}#ef4444{% elif b.raw_pct >= 80 %}#f59e0b{% else %}#aaa{% endif %};font-weight:600">${{ "%.0f"|format(b.spent) }}</span>
+          <span style="color:#555">/ ${{ "%.0f"|format(b.monthly_limit) }}  ({{ b.raw_pct }}%)</span>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% else %}
+  <div style="text-align:right;margin-bottom:12px">
+    <button class="btn" style="background:#6366f1;font-size:.8rem;padding:7px 14px"
+            onclick="openModal('budgetModal')">+ Set Monthly Budget</button>
+  </div>
+  {% endif %}
+
   <!-- INCOME ENTRIES -->
   <div class="card" style="margin-bottom:24px">
     <div class="section-title">
@@ -450,6 +490,165 @@
     {% endif %}
   </div>
 
+</div>
+
+  <!-- MANUAL EXPENSES -->
+  <div class="card" style="margin-bottom:24px">
+    <div class="section-title">
+      <span>Manual Expenses <span style="color:#555;font-size:.8rem;font-weight:400">(rent, utilities, salary…)</span></span>
+      <button class="btn btn-danger" style="font-size:.75rem;padding:5px 12px"
+              onclick="openModal('manualExpModal')">+ Add Expense</button>
+    </div>
+    {% if son_manual %}
+    <table class="tbl">
+      <thead><tr><th>#</th><th>Description</th><th>Category</th><th>Date</th><th>Tax</th><th>Amount</th><th></th></tr></thead>
+      <tbody>
+      {% for e in son_manual %}
+      <tr>
+        <td style="color:#555">{{ e.id }}</td>
+        <td>{{ e.description or '—' }}</td>
+        <td><span class="badge" style="background:#1e2133;color:#aaa;text-transform:capitalize">{{ e.category }}</span></td>
+        <td style="color:#888">{{ e.expense_date }}</td>
+        <td style="color:#666;font-size:.82rem">{% if e.tax_amount %}${{ "%.2f"|format(e.tax_amount) }}{% else %}—{% endif %}</td>
+        <td style="font-weight:700;color:#ef4444">-${{ "%.2f"|format(e.amount) }}</td>
+        <td>
+          <div style="display:flex;gap:6px">
+            <button class="btn btn-primary" style="font-size:.72rem;padding:4px 10px"
+              onclick="openEditExpense({{ e.id }}, {{ e.amount }}, '{{ (e.description or '')|replace("'","\\'")|replace('"','\\"') }}', '{{ e.category }}', '{{ e.expense_date }}', {{ e.tax_amount or 0 }})">Edit</button>
+            <form method="post" action="/expenses/{{ e.id }}/sil"
+                  onsubmit="return confirm('Delete this expense?')">
+              <button class="btn btn-danger">✕</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <p style="color:#555;text-align:center;padding:30px">No manual expenses for this period.</p>
+    {% endif %}
+  </div>
+
+</div><!-- /container -->
+
+<!-- MANUAL EXPENSE MODAL -->
+<div class="modal-backdrop" id="manualExpModal">
+  <div class="modal">
+    <h2>Add Manual Expense</h2>
+    <form method="post" action="/expenses/ekle">
+      <div class="form-group">
+        <label>Amount (CAD)</label>
+        <input type="number" name="amount" step="0.01" min="0" placeholder="0.00" required autofocus>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" placeholder="Monthly rent, Hydro bill...">
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select name="category" style="width:100%;background:#0f1117;border:1px solid #2a2d3e;color:#e0e0e0;padding:10px;border-radius:8px">
+          <option value="rent">Rent</option>
+          <option value="utilities">Utilities</option>
+          <option value="salary">Salary</option>
+          <option value="insurance">Insurance</option>
+          <option value="maintenance">Maintenance</option>
+          <option value="marketing">Marketing</option>
+          <option value="supplies">Supplies</option>
+          <option value="other" selected>Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Tax Amount (GST/HST)</label>
+        <input type="number" name="tax_amount" step="0.01" min="0" placeholder="0.00">
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="expense_date" value="{{ ''|today_date }}">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('manualExpModal')">Cancel</button>
+        <button type="submit" class="btn btn-danger">Save Expense</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- EDIT EXPENSE MODAL -->
+<div class="modal-backdrop" id="editExpModal">
+  <div class="modal">
+    <h2>Edit Expense</h2>
+    <form method="post" id="editExpForm" action="">
+      <div class="form-group">
+        <label>Amount (CAD)</label>
+        <input type="number" name="amount" id="editExpAmount" step="0.01" min="0" required>
+      </div>
+      <div class="form-group">
+        <label>Description</label>
+        <input type="text" name="description" id="editExpDesc">
+      </div>
+      <div class="form-group">
+        <label>Category</label>
+        <select name="category" id="editExpCat" style="width:100%;background:#0f1117;border:1px solid #2a2d3e;color:#e0e0e0;padding:10px;border-radius:8px">
+          <option value="rent">Rent</option>
+          <option value="utilities">Utilities</option>
+          <option value="salary">Salary</option>
+          <option value="insurance">Insurance</option>
+          <option value="maintenance">Maintenance</option>
+          <option value="marketing">Marketing</option>
+          <option value="supplies">Supplies</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Tax Amount</label>
+        <input type="number" name="tax_amount" id="editExpTax" step="0.01" min="0">
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="expense_date" id="editExpDate">
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('editExpModal')">Cancel</button>
+        <button type="submit" class="btn btn-danger">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- BUDGET MODAL -->
+<div class="modal-backdrop" id="budgetModal">
+  <div class="modal">
+    <h2>Set Monthly Budget</h2>
+    <form method="post" action="/budgets/guncelle">
+      <div class="form-group">
+        <label>Category</label>
+        <input type="text" name="category" placeholder="e.g. meat, rent, salary..." required autofocus
+               list="budget-cat-list">
+        <datalist id="budget-cat-list">
+          <option value="meat"><option value="bread"><option value="vegetable">
+          <option value="dairy"><option value="beverage"><option value="packaging">
+          <option value="rent"><option value="utilities"><option value="salary">
+          <option value="insurance"><option value="maintenance"><option value="marketing">
+        </datalist>
+      </div>
+      <div class="form-group">
+        <label>Monthly Limit (CAD)</label>
+        <input type="number" name="monthly_limit" step="0.01" min="1" placeholder="0.00" required>
+      </div>
+      <div class="form-group">
+        <label>Tracks</label>
+        <select name="scope" style="width:100%;background:#0f1117;border:1px solid #2a2d3e;color:#e0e0e0;padding:10px;border-radius:8px">
+          <option value="receipt">Receipt items (food categories)</option>
+          <option value="manual">Manual expenses (overhead)</option>
+        </select>
+      </div>
+      <div class="btn-row">
+        <button type="button" class="btn btn-ghost" onclick="closeModal('budgetModal')">Cancel</button>
+        <button type="submit" class="btn" style="background:#6366f1">Save Budget</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <!-- INCOME MODAL -->
@@ -565,6 +764,16 @@ function filterCat(cat, btn){
   document.querySelectorAll('#stock-list .stock-list-item').forEach(item => {
     item.style.display = (cat === 'all' || item.dataset.cat === cat) ? 'flex' : 'none'
   })
+}
+
+function openEditExpense(id, amount, desc, cat, expDate, tax){
+  document.getElementById('editExpForm').action = '/expenses/'+id+'/duzenle'
+  document.getElementById('editExpAmount').value = amount
+  document.getElementById('editExpDesc').value = desc
+  document.getElementById('editExpCat').value = cat
+  document.getElementById('editExpDate').value = expDate
+  document.getElementById('editExpTax').value = tax
+  openModal('editExpModal')
 }
 
 function openEditIncome(id, amount, desc){
