@@ -10,7 +10,7 @@
   .back{color:#3b82f6;text-decoration:none;font-size:.875rem;display:inline-flex;
     align-items:center;gap:6px;margin-bottom:20px}
   .back:hover{color:#60a5fa}
-  .layout{display:grid;grid-template-columns:1fr 380px;gap:20px;max-width:1000px;margin:0 auto;align-items:start}
+  .layout{display:grid;grid-template-columns:1fr 380px;gap:20px;max-width:1100px;margin:0 auto;align-items:start}
   @media(max-width:720px){.layout{grid-template-columns:1fr}}
   .card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:24px}
   h1{font-size:1.3rem;margin-bottom:20px;color:#fff}
@@ -20,20 +20,49 @@
   table{width:100%;border-collapse:collapse;font-size:.875rem}
   th{text-align:left;padding:10px;color:#555;font-size:.75rem;
     border-bottom:1px solid #2a2d3e;text-transform:uppercase}
-  td{padding:10px;border-bottom:1px solid #1a1d2e;color:#ccc}
+  td{padding:8px 10px;border-bottom:1px solid #1a1d2e;color:#ccc;vertical-align:middle}
   .total-row td{font-weight:700;color:#ef4444;border-top:2px solid #2a2d3e}
   .btn{padding:8px 16px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;
     font-weight:600;text-decoration:none;display:inline-block}
   .btn-danger{background:#7f1d1d;color:#fca5a5}
   .btn-ghost{background:#1a1d2e;border:1px solid #2a2d3e;color:#aaa}
   .btn-ghost:hover{color:#fff}
+  .btn-primary{background:#1d4ed8;color:#fff}
+  .btn-primary:hover{background:#2563eb}
+  .btn-sm{padding:4px 10px;font-size:.75rem;border-radius:6px}
   .photo-card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;overflow:hidden}
   .photo-card img{width:100%;display:block;border-radius:0}
   .photo-label{padding:12px 16px;font-size:.75rem;color:#555;text-align:center;text-transform:uppercase;letter-spacing:.05em}
+
+  /* Category edit inline */
+  .cat-display{display:flex;align-items:center;gap:6px}
+  .cat-badge{background:#2a2d3e;border-radius:4px;padding:2px 8px;font-size:.75rem;color:#aaa}
+  .cat-edit-btn{background:none;border:none;cursor:pointer;color:#3b82f6;font-size:.75rem;padding:2px 6px;
+    border-radius:4px;opacity:.6}
+  .cat-edit-btn:hover{opacity:1;background:#1e3a5f}
+  .cat-form{display:none;flex-direction:column;gap:6px;background:#0f1117;border:1px solid #2a2d3e;
+    border-radius:8px;padding:10px;margin-top:4px;min-width:200px}
+  .cat-form.open{display:flex}
+  .cat-form select{background:#1a1d2e;border:1px solid #2a2d3e;color:#e0e0e0;padding:5px 8px;
+    border-radius:6px;font-size:.82rem}
+  .cat-form label{font-size:.75rem;color:#888;display:flex;align-items:center;gap:6px;cursor:pointer}
+  .cat-form label input{accent-color:#3b82f6}
+  .cat-form .form-btns{display:flex;gap:6px}
+  .teach-hint{font-size:.7rem;color:#4ade80;display:none}
+  .teach-hint.show{display:block}
+
+  .nav-links{display:flex;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+  .nav-links a{color:#3b82f6;text-decoration:none;font-size:.85rem;
+    background:#1a1d2e;border:1px solid #2a2d3e;padding:5px 12px;border-radius:6px}
+  .nav-links a:hover{color:#60a5fa;border-color:#3b82f6}
 </style>
 </head>
 <body>
-<a href="/" class="back">← Back to Dashboard</a>
+<div class="nav-links">
+  <a href="/">← Dashboard</a>
+  <a href="/receipts">All Receipts</a>
+  <a href="/categories">⚙ Categories & Aliases</a>
+</div>
 
 <div class="layout">
   <div class="card">
@@ -53,13 +82,45 @@
     {% if items %}
     <table>
       <thead>
-        <tr><th>Item</th><th>Category</th><th>Qty</th><th>Unit Price</th><th>Total</th></tr>
+        <tr>
+          <th>Item</th>
+          <th>Category</th>
+          <th>Qty</th>
+          <th>Unit Price</th>
+          <th>Total</th>
+        </tr>
       </thead>
       <tbody>
         {% for i in items %}
         <tr>
           <td>{{ i.item_name or '?' }}</td>
-          <td style="color:#666">{{ i.category or '—' }}</td>
+          <td>
+            <div class="cat-display">
+              <span class="cat-badge" id="badge-{{ i.id }}">{{ i.category or 'other' }}</span>
+              <button class="cat-edit-btn" onclick="toggleEdit({{ i.id }})">✏ edit</button>
+            </div>
+            <div class="cat-form" id="form-{{ i.id }}">
+              <form method="post" action="/item/{{ i.id }}/category">
+                <select name="category" id="sel-{{ i.id }}" onchange="updateTeachHint({{ i.id }})">
+                  {% for cat in categories %}
+                  <option value="{{ cat }}" {% if cat == (i.category or 'other') %}selected{% endif %}>{{ cat }}</option>
+                  {% endfor %}
+                </select>
+                <label>
+                  <input type="checkbox" name="teach" value="1" id="teach-{{ i.id }}"
+                         onchange="updateTeachHint({{ i.id }})">
+                  Teach bot — remember "{{ i.item_name }}" = this category
+                </label>
+                <span class="teach-hint" id="hint-{{ i.id }}">
+                  ✓ Bot will auto-categorize "{{ i.item_name }}" next time
+                </span>
+                <div class="form-btns">
+                  <button type="submit" class="btn btn-primary btn-sm">Save</button>
+                  <button type="button" class="btn btn-ghost btn-sm" onclick="toggleEdit({{ i.id }})">Cancel</button>
+                </div>
+              </form>
+            </div>
+          </td>
           <td>{{ i.quantity }} {{ i.unit or '' }}</td>
           <td>${{ "%.2f"|format(i.unit_price) }}</td>
           <td style="color:#ef4444">${{ "%.2f"|format(i.total_price) }}</td>
@@ -89,5 +150,18 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+function toggleEdit(id) {
+  const form = document.getElementById('form-' + id);
+  form.classList.toggle('open');
+}
+
+function updateTeachHint(id) {
+  const cb = document.getElementById('teach-' + id);
+  const hint = document.getElementById('hint-' + id);
+  hint.classList.toggle('show', cb.checked);
+}
+</script>
 </body>
 </html>

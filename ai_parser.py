@@ -11,15 +11,22 @@ load_dotenv()
 
 client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY", ""))
 
-PARSE_PROMPT = (
-    "Parse this receipt into JSON. Output ONLY valid JSON, nothing else.\n"
-    '{"store_name":"...","receipt_date":"YYYY-MM-DD or null","subtotal":0.00,"tax_amount":0.00,'
-    '"total_amount":0.00,"currency":"CAD","tax_label":"GST|HST|PST or null",'
-    '"items":[{"item_name":"original name","category":"meat|bread|vegetable|fruit|dairy|beverage|cleaning|packaging|other",'
-    '"quantity":0.0,"unit":"kg|unit|litre|pack","unit_price":0.00,"total_price":0.00}]}\n'
-    "Extract tax (GST/HST/PST) into tax_amount. total_amount = subtotal + tax_amount. "
-    "Use null for unknowns. Keep item names in their original language."
-)
+# Default categories — overridden at parse time if DB has custom list
+DEFAULT_CATEGORIES = ["meat", "bread", "vegetable", "fruit", "dairy",
+                      "beverage", "cleaning", "packaging", "other"]
+
+def _build_prompt(categories: list[str] | None = None) -> str:
+    cats = "|".join(categories or DEFAULT_CATEGORIES)
+    return (
+        "Parse this receipt into JSON. Output ONLY valid JSON, nothing else.\n"
+        '{"store_name":"...","receipt_date":"YYYY-MM-DD or null","subtotal":0.00,"tax_amount":0.00,'
+        '"total_amount":0.00,"currency":"CAD","tax_label":"GST|HST|PST or null",'
+        f'"items":[{{"item_name":"original name","category":"{cats}",'
+        '"quantity":0.0,"unit":"kg|unit|litre|pack","unit_price":0.00,"total_price":0.00}]}}\n'
+        "Extract tax (GST/HST/PST) into tax_amount. total_amount = subtotal + tax_amount. "
+        "Use null for unknowns. Keep item names in their original language. "
+        f'When category is unclear, use your best guess from: {cats}.'
+    )
 
 MEDIA_MAP = {
     ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
@@ -67,8 +74,9 @@ def _extract_json(text: str) -> dict:
     raise ValueError(f"Could not extract valid JSON from AI response: {clean[:200]}")
 
 
-def _call_ai(image_data: str, media_type: str) -> str:
+def _call_ai(image_data: str, media_type: str, categories: list[str] | None = None) -> str:
     """Single AI call, returns raw text."""
+    prompt = _build_prompt(categories)
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=1000,
@@ -83,14 +91,14 @@ def _call_ai(image_data: str, media_type: str) -> str:
                         "data": image_data,
                     },
                 },
-                {"type": "text", "text": PARSE_PROMPT},
+                {"type": "text", "text": prompt},
             ],
         }],
     )
     return response.content[0].text
 
 
-def parse_receipt(image_path: str) -> tuple[dict, str]:
+def parse_receipt(image_path: str, categories: list[str] | None = None) -> tuple[dict, str]:
     suffix = Path(image_path).suffix.lower()
     media_type = MEDIA_MAP.get(suffix, "image/jpeg")
 
@@ -100,7 +108,7 @@ def parse_receipt(image_path: str) -> tuple[dict, str]:
     last_error = None
     for attempt in range(1, MAX_RETRIES + 1):
         try:
-            raw_text = _call_ai(image_data, media_type)
+            raw_text = _call_ai(image_data, media_type, categories)
             parsed = _extract_json(raw_text)
             return parsed, raw_text
         except Exception as e:

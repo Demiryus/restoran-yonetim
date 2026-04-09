@@ -83,7 +83,30 @@ def init_db():
             scope         TEXT DEFAULT 'receipt',
             updated_at    TEXT DEFAULT (datetime('now','localtime'))
         );
+
+        CREATE TABLE IF NOT EXISTS categories (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            name       TEXT UNIQUE NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
+
+        CREATE TABLE IF NOT EXISTS item_aliases (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            pattern    TEXT NOT NULL,
+            category   TEXT NOT NULL,
+            created_at TEXT DEFAULT (datetime('now','localtime'))
+        );
     """)
+
+    # Seed default categories (ignore if already exist)
+    default_cats = ["meat", "bread", "vegetable", "fruit", "dairy",
+                    "beverage", "cleaning", "packaging", "other"]
+    for cat in default_cats:
+        try:
+            conn.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (cat,))
+        except Exception:
+            pass
+    conn.commit()
 
     # Step 2: Migrate existing tables — add new columns safely
     migrations = [
@@ -109,8 +132,39 @@ def init_db():
         CREATE INDEX IF NOT EXISTS idx_income_date        ON income(income_date DESC);
         CREATE INDEX IF NOT EXISTS idx_manual_exp_date    ON manual_expenses(expense_date DESC);
         CREATE INDEX IF NOT EXISTS idx_manual_exp_cat     ON manual_expenses(category);
+        CREATE INDEX IF NOT EXISTS idx_aliases_pattern    ON item_aliases(lower(pattern));
     """)
 
     conn.commit()
     conn.close()
     print("Veritabani hazir.")
+
+
+def get_categories() -> list[str]:
+    """Return all category names from the categories table."""
+    conn = get_db()
+    rows = conn.execute("SELECT name FROM categories ORDER BY name").fetchall()
+    conn.close()
+    return [r["name"] for r in rows] or ["meat", "bread", "vegetable", "fruit",
+                                          "dairy", "beverage", "cleaning", "packaging", "other"]
+
+
+def apply_aliases(items: list[dict]) -> list[dict]:
+    """Override item categories based on saved item_aliases patterns.
+    Call this after AI parsing so user-taught mappings take effect.
+    """
+    conn = get_db()
+    aliases = [dict(r) for r in conn.execute("SELECT pattern, category FROM item_aliases").fetchall()]
+    conn.close()
+    if not aliases:
+        return items
+    result = []
+    for item in items:
+        name_lower = (item.get("item_name") or "").lower()
+        overridden = dict(item)
+        for alias in aliases:
+            if alias["pattern"].lower() in name_lower:
+                overridden["category"] = alias["category"]
+                break
+        result.append(overridden)
+    return result

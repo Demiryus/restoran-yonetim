@@ -15,7 +15,7 @@ import secrets
 from datetime import date, timedelta
 
 import os
-from database import get_db, init_db
+from database import get_db, init_db, apply_aliases, get_categories
 from ai_parser import parse_receipt
 
 # Railway Volume'da kalıcı photos klasörü: PHOTOS_DIR=/data/photos
@@ -60,6 +60,8 @@ def scalar(query, params=()):
     row = db.execute(query, params).fetchone()
     db.close()
     return (row[0] or 0) if row else 0
+
+
 
 
 # ─────────────────────────── Ana sayfa ────────────────────────────
@@ -225,7 +227,8 @@ async def fis_detay(request: Request, receipt_id: int, _auth: None = Depends(req
         if p.exists():
             photo_url = f"/photos/{p.name}"
     return templates.TemplateResponse("fis_detay.html", {
-        "request": request, "fis": fis, "items": items, "photo_url": photo_url
+        "request": request, "fis": fis, "items": items, "photo_url": photo_url,
+        "categories": get_categories(),
     })
 
 @app.post("/fis/{receipt_id}/sil")
@@ -290,7 +293,7 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
         return JSONResponse({"ok": False, "error": "Photo file not found"})
 
     try:
-        parsed, raw = parse_receipt(photo_path)
+        parsed, raw = parse_receipt(photo_path, categories=get_categories())
         tuketim = (row["type"] == "consumption")
 
         db.execute("""
@@ -315,7 +318,7 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
         # Delete old items and re-insert
         db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (receipt_id,))
 
-        for item in (parsed.get("items") or []):
+        for item in apply_aliases(parsed.get("items") or []):
             name    = item.get("item_name") or "?"
             qty     = float(item.get("quantity") or 0)
             unit    = item.get("unit") or ""
@@ -938,6 +941,94 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
         "week_diff": this_total - last_total,
         "week_pct": round((this_total - last_total) / last_total * 100, 1) if last_total else None,
     })
+
+
+# ───────────────────── Item Category Edit + Teach Bot ────────────
+
+@app.post("/item/{item_id}/category")
+async def item_update_category(
+    item_id: int,
+    category: str = Form(...),
+    teach: int = Form(0),
+    _auth: None = Depends(require_auth),
+):
+    """Update a single receipt_item's category. Optionally save an alias to teach the bot."""
+    db = get_db()
+    row = db.execute("SELECT item_name FROM receipt_items WHERE id=?", (item_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    item_name = row["item_name"]
+    db.execute("UPDATE receipt_items SET category=? WHERE id=?", (category, item_id))
+
+    if teach:
+        # Also update stock category for this item name
+        db.execute("UPDATE stock SET category=? WHERE lower(item_name)=lower(?)", (category, item_name))
+        # Save alias: use the full item name as pattern (user can edit later)
+        existing = db.execute(
+            "SELECT id FROM item_aliases WHERE lower(pattern)=lower(?)", (item_name,)
+        ).fetchone()
+        if existing:
+            db.execute("UPDATE item_aliases SET category=? WHERE id=?", (category, existing["id"]))
+        else:
+            db.execute("INSERT INTO item_aliases (pattern, category) VALUES (?,?)", (item_name, category))
+
+    db.commit()
+    db.close()
+    # Get receipt_id to redirect back
+    receipt_id = fetch_one("SELECT receipt_id FROM receipt_items WHERE id=?", (item_id,))
+    if receipt_id:
+        return RedirectResponse(f"/fis/{receipt_id['receipt_id']}", status_code=303)
+    return RedirectResponse("/", status_code=303)
+
+
+# ─────────────────────── Categories Management ────────────────────
+
+@app.get("/categories", response_class=HTMLResponse)
+async def categories_page(request: Request, _auth: None = Depends(require_auth)):
+    categories = fetch_all("SELECT * FROM categories ORDER BY name")
+    aliases = fetch_all("SELECT * FROM item_aliases ORDER BY pattern")
+    return templates.TemplateResponse("categories.html", {
+        "request": request,
+        "categories": categories,
+        "aliases": aliases,
+    })
+
+@app.post("/categories/ekle")
+async def category_ekle(name: str = Form(...), _auth: None = Depends(require_auth)):
+    name = name.strip().lower().replace(" ", "_")
+    db = get_db()
+    db.execute("INSERT OR IGNORE INTO categories (name) VALUES (?)", (name,))
+    db.commit(); db.close()
+    return RedirectResponse("/categories", status_code=303)
+
+@app.post("/categories/{cat_id}/sil")
+async def category_sil(cat_id: int, _auth: None = Depends(require_auth)):
+    db = get_db()
+    db.execute("DELETE FROM categories WHERE id=?", (cat_id,))
+    db.commit(); db.close()
+    return RedirectResponse("/categories", status_code=303)
+
+@app.post("/aliases/ekle")
+async def alias_ekle(pattern: str = Form(...), category: str = Form(...), _auth: None = Depends(require_auth)):
+    pattern = pattern.strip()
+    db = get_db()
+    # Upsert: if same pattern exists, update its category
+    existing = db.execute("SELECT id FROM item_aliases WHERE lower(pattern)=lower(?)", (pattern,)).fetchone()
+    if existing:
+        db.execute("UPDATE item_aliases SET category=? WHERE id=?", (category, existing["id"]))
+    else:
+        db.execute("INSERT INTO item_aliases (pattern, category) VALUES (?,?)", (pattern, category))
+    db.commit(); db.close()
+    return RedirectResponse("/categories", status_code=303)
+
+@app.post("/aliases/{alias_id}/sil")
+async def alias_sil(alias_id: int, _auth: None = Depends(require_auth)):
+    db = get_db()
+    db.execute("DELETE FROM item_aliases WHERE id=?", (alias_id,))
+    db.commit(); db.close()
+    return RedirectResponse("/categories", status_code=303)
 
 
 # ─────────────────────────── Başlangıç ────────────────────────────

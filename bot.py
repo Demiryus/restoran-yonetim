@@ -19,7 +19,7 @@ from telegram.ext import (
     filters, ContextTypes,
 )
 
-from database import get_db, init_db
+from database import get_db, init_db, apply_aliases, get_categories
 from ai_parser import parse_receipt
 
 load_dotenv()
@@ -140,7 +140,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await msg.edit_text(f"Analyzing receipt with AI... ({mod_text})")
 
     try:
-        parsed, raw = parse_receipt(photo_path)
+        parsed, raw = parse_receipt(photo_path, categories=get_categories())
 
         cur.execute("""
             UPDATE receipts SET
@@ -161,7 +161,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             receipt_id,
         ))
 
-        items = parsed.get("items") or []
+        items = apply_aliases(parsed.get("items") or [])
         stok_satirlari = []
 
         for item in items:

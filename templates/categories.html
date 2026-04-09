@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Categories & Aliases</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;padding:24px}
+  .nav-links{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap}
+  .nav-links a{color:#3b82f6;text-decoration:none;font-size:.85rem;
+    background:#1a1d2e;border:1px solid #2a2d3e;padding:5px 12px;border-radius:6px}
+  .nav-links a:hover{color:#60a5fa;border-color:#3b82f6}
+  h1{font-size:1.4rem;color:#fff;margin-bottom:4px}
+  .subtitle{color:#555;font-size:.85rem;margin-bottom:28px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;max-width:1000px}
+  @media(max-width:680px){.grid{grid-template-columns:1fr}}
+  .card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:22px}
+  .card h2{font-size:1rem;color:#fff;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+  .card h2 span{font-size:.75rem;background:#2a2d3e;padding:2px 8px;border-radius:10px;color:#888}
+
+  /* Add form */
+  .add-form{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .add-form input, .add-form select{
+    background:#0f1117;border:1px solid #2a2d3e;color:#e0e0e0;
+    padding:7px 12px;border-radius:8px;font-size:.85rem;flex:1;min-width:120px}
+  .add-form input:focus, .add-form select:focus{outline:none;border-color:#3b82f6}
+  .btn{padding:7px 16px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;font-weight:600}
+  .btn-primary{background:#1d4ed8;color:#fff}
+  .btn-primary:hover{background:#2563eb}
+  .btn-danger{background:none;border:1px solid #7f1d1d;color:#f87171;padding:3px 10px;
+    font-size:.75rem;border-radius:6px;cursor:pointer}
+  .btn-danger:hover{background:#7f1d1d}
+
+  /* List items */
+  .item-list{display:flex;flex-direction:column;gap:6px}
+  .item-row{display:flex;justify-content:space-between;align-items:center;
+    background:#0f1117;border:1px solid #2a2d3e;border-radius:8px;padding:8px 12px}
+  .item-name{font-size:.875rem;color:#ccc}
+  .item-meta{font-size:.75rem;color:#555;margin-top:2px}
+  .arrow{color:#3b82f6;font-size:.8rem;margin:0 6px}
+  .cat-pill{background:#1d4ed822;border:1px solid #1d4ed8;color:#60a5fa;
+    border-radius:4px;padding:1px 8px;font-size:.75rem}
+  .empty{color:#444;font-size:.85rem;text-align:center;padding:20px 0;font-style:italic}
+
+  .info-box{background:#0f2a1a;border:1px solid #166534;border-radius:8px;
+    padding:12px 16px;margin-bottom:18px;font-size:.82rem;color:#4ade80;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="nav-links">
+  <a href="/">← Dashboard</a>
+  <a href="/receipts">Receipts</a>
+</div>
+
+<h1>⚙ Categories & Aliases</h1>
+<p class="subtitle">Teach the bot how to categorize items automatically.</p>
+
+<div class="grid">
+
+  <!-- ── Categories ── -->
+  <div class="card">
+    <h2>Categories <span>{{ categories|length }}</span></h2>
+
+    <div class="info-box">
+      These are the available categories for receipt items. The AI uses this list when parsing receipts.
+      Add new ones as needed, or remove ones you don't use.
+    </div>
+
+    <form method="post" action="/categories/ekle" class="add-form">
+      <input type="text" name="name" placeholder="e.g. seafood" required>
+      <button type="submit" class="btn btn-primary">+ Add</button>
+    </form>
+
+    <div class="item-list">
+      {% for cat in categories %}
+      <div class="item-row">
+        <div>
+          <div class="item-name">{{ cat.name }}</div>
+        </div>
+        <form method="post" action="/categories/{{ cat.id }}/sil"
+              onsubmit="return confirm('Remove category {{ cat.name }}?')">
+          <button class="btn-danger">Remove</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="empty">No categories yet.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- ── Item Aliases ── -->
+  <div class="card">
+    <h2>Item Aliases <span>{{ aliases|length }}</span></h2>
+
+    <div class="info-box">
+      When the bot sees an item name containing the pattern below, it will automatically assign
+      the mapped category — even if the name is ambiguous (e.g. "med full case" → meat).
+      You can also add aliases directly from a receipt's edit button.
+    </div>
+
+    <form method="post" action="/aliases/ekle" class="add-form" style="flex-direction:column;gap:8px">
+      <div style="display:flex;gap:8px">
+        <input type="text" name="pattern" placeholder='Pattern (e.g. "med full case")' required style="flex:2">
+        <select name="category" style="flex:1">
+          {% for cat in categories %}
+          <option value="{{ cat.name }}">{{ cat.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary" style="align-self:flex-start">+ Add Alias</button>
+    </form>
+
+    <div class="item-list">
+      {% for alias in aliases %}
+      <div class="item-row">
+        <div>
+          <div class="item-name">
+            "<span style="color:#fbbf24">{{ alias.pattern }}</span>"
+            <span class="arrow">→</span>
+            <span class="cat-pill">{{ alias.category }}</span>
+          </div>
+          <div class="item-meta">Added {{ alias.created_at[:10] }}</div>
+        </div>
+        <form method="post" action="/aliases/{{ alias.id }}/sil"
+              onsubmit="return confirm('Remove this alias?')">
+          <button class="btn-danger">Remove</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="empty">No aliases yet. Open a receipt, click ✏ edit on an item, and check "Teach bot" to add one.</div>
+      {% endfor %}
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
