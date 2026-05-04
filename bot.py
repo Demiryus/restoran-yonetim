@@ -41,6 +41,13 @@ ALLOWED_USER_IDS: set[int] = {
 _summary_time = os.getenv("SUMMARY_TIME_UTC", "20:00").split(":")
 SUMMARY_TIME = time(int(_summary_time[0]), int(_summary_time[1]))
 
+# Daily backup time (UTC). Override with BACKUP_TIME_UTC=HH:MM
+_backup_time = os.getenv("BACKUP_TIME_UTC", "03:00").split(":")
+BACKUP_TIME = time(int(_backup_time[0]), int(_backup_time[1]))
+
+# Database path used by backup job (matches database.py default)
+DB_PATH = os.getenv("DB_PATH", "restoran.db")
+
 # Comma-separated user IDs that receive the daily summary.
 # Defaults to ALLOWED_USER_IDS if not set separately.
 _raw_notify = os.getenv("NOTIFY_USER_IDS", _raw_ids)
@@ -73,15 +80,18 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "*Bodega updated 5.5.26*\n\n"
         "Send a receipt photo to add items to stock automatically.\n"
-        "Add caption *use* / *consume* to deduct from stock instead.\n\n"
+        "Add caption *use* / *consume* to deduct from stock instead.\n"
+        "Add caption *refund* / *return* / *iade* for vendor refunds.\n\n"
         "Commands:\n"
         "`/income 500 Lunch service` — Add income\n"
         "`/expense 3500 Monthly rent rent` — Add manual expense\n"
         "`/summary` — Today's income/expense summary\n"
+        "`/weeklyreport` — 7-day comparison report\n"
         "`/stock` — View stock levels\n"
         "`/stockset chicken 5 kg` — Set stock quantity\n"
         "`/stockuse chicken 2` — Deduct from stock\n"
         "`/stockdel chicken` — Delete stock item\n"
+        "`/backup` — Get a backup of the database now\n"
         f"\nDashboard: {WEB_URL}",
         parse_mode="Markdown",
     )
@@ -419,6 +429,68 @@ async def _send_summary(chat_id: int, context):
     )
 
 
+# ──────────────────────── Backup ───────────────────────────────────
+async def _send_backup(chat_id: int, context, label: str = "scheduled"):
+    """Send a hot copy of the SQLite database as a Telegram document.
+    Uses sqlite3 backup API so the copy is consistent even with WAL mode.
+    """
+    import sqlite3, os as _os
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    tmp_path = f"backup_{ts}.db"
+    try:
+        src = sqlite3.connect(DB_PATH)
+        dst = sqlite3.connect(tmp_path)
+        with dst:
+            src.backup(dst)
+        dst.close(); src.close()
+
+        size_kb = _os.path.getsize(tmp_path) / 1024
+
+        # Counts for the caption
+        c = sqlite3.connect(tmp_path)
+        n_receipts = c.execute("SELECT COUNT(*) FROM receipts").fetchone()[0]
+        n_items    = c.execute("SELECT COUNT(*) FROM receipt_items").fetchone()[0]
+        n_stock    = c.execute("SELECT COUNT(*) FROM stock").fetchone()[0]
+        c.close()
+
+        with open(tmp_path, "rb") as f:
+            await context.bot.send_document(
+                chat_id=chat_id,
+                document=f,
+                filename=f"bodega_{ts}.db",
+                caption=(
+                    f"\U0001F4E6 *Bodega backup* ({label})\n"
+                    f"Time: {ts} UTC\n"
+                    f"Size: {size_kb:.1f} KB\n"
+                    f"Receipts: {n_receipts} · Items: {n_items} · Stock: {n_stock}"
+                ),
+                parse_mode="Markdown",
+            )
+    finally:
+        try: _os.remove(tmp_path)
+        except Exception: pass
+
+
+async def cmd_backup(update: Update, context):
+    """On-demand backup: /backup"""
+    if not _is_allowed(update): await _deny(update); return
+    msg = await update.message.reply_text("\U0001F4E6 Creating backup...")
+    try:
+        await _send_backup(update.effective_chat.id, context, label="manual")
+        await msg.delete()
+    except Exception as e:
+        await msg.edit_text(f"❌ Backup failed: {e}")
+
+
+async def job_daily_backup(context):
+    """Runs daily at BACKUP_TIME_UTC — DMs the .db to all NOTIFY_USER_IDS."""
+    for uid in NOTIFY_USER_IDS:
+        try:
+            await _send_backup(uid, context, label="auto-daily")
+        except Exception as e:
+            print(f"[BACKUP] Failed to send to {uid}: {e}")
+
+
 # ──────────────────────── Scheduled daily summary ──────────────────
 async def job_daily_summary(context):
     """Runs daily at SUMMARY_TIME_UTC — sends summary to all NOTIFY_USER_IDS."""
@@ -618,14 +690,17 @@ def main():
     app.add_handler(CommandHandler("expense",       cmd_expense))
     app.add_handler(CommandHandler("stockdel",     cmd_stok_sil))
     app.add_handler(CommandHandler("weeklyreport", cmd_weekly_report))
+    app.add_handler(CommandHandler("backup",       cmd_backup))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     # Daily summary job
     if NOTIFY_USER_IDS:
         app.job_queue.run_daily(job_daily_summary, time=SUMMARY_TIME)
+        app.job_queue.run_daily(job_daily_backup,  time=BACKUP_TIME)
         print(f"Daily summary scheduled at {SUMMARY_TIME} UTC → {NOTIFY_USER_IDS}")
+        print(f"Daily backup  scheduled at {BACKUP_TIME} UTC → {NOTIFY_USER_IDS}")
     else:
-        print("No NOTIFY_USER_IDS set — daily summary disabled")
+        print("No NOTIFY_USER_IDS set — daily summary & backup disabled")
 
     if ALLOWED_USER_IDS:
         print(f"Auth enabled — allowed users: {ALLOWED_USER_IDS}")
