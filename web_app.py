@@ -38,7 +38,7 @@ def require_auth(credentials: HTTPBasicCredentials = Depends(_security)):
     if not (ok_user and ok_pass):
         raise HTTPException(status_code=401, headers={"WWW-Authenticate": "Basic"}, detail="Invalid credentials")
 
-app = FastAPI(title="Restoran Yönetim")
+app = FastAPI(title="Bodega updated 5.5.26")
 app.mount("/photos", StaticFiles(directory=str(PHOTOS_DIR)), name="photos")
 
 templates = Jinja2Templates(directory="templates")

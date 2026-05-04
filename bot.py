@@ -71,7 +71,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         await _deny(update); return
     await update.message.reply_text(
-        "*Restaurant Management System*\n\n"
+        "*Bodega updated 5.5.26*\n\n"
         "Send a receipt photo to add items to stock automatically.\n"
         "Add caption *use* / *consume* to deduct from stock instead.\n\n"
         "Commands:\n"
