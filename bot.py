@@ -90,20 +90,34 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ──────────────────────────── Photo handler ────────────────────────
 
 TUKETIM_KELIMELERI = {"kullan", "use", "consume", "deduct", "çıkar", "cikar", "tüket", "tuket", "sarf"}
+IADE_KELIMELERI    = {"iade", "refund", "return", "geri iade"}
 
-def _tuketim_modu(caption: str | None) -> bool:
+def _receipt_mode(caption: str | None) -> str:
+    """Returns 'refund', 'consumption', or 'expense'."""
     if not caption:
-        return False
+        return "expense"
     low = caption.lower()
-    return any(k in low for k in TUKETIM_KELIMELERI)
+    if any(k in low for k in IADE_KELIMELERI):
+        return "refund"
+    if any(k in low for k in TUKETIM_KELIMELERI):
+        return "consumption"
+    return "expense"
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update):
         await _deny(update); return
 
     caption  = update.message.caption or ""
-    tuketim  = _tuketim_modu(caption)
-    mod_text = "deducting from stock" if tuketim else "adding to stock"
+    mode     = _receipt_mode(caption)
+    tuketim  = (mode == "consumption")
+    iade     = (mode == "refund")
+    stock_subtracts = tuketim or iade
+    if iade:
+        mod_text = "refund — deducting from stock & expenses"
+    elif tuketim:
+        mod_text = "deducting from stock"
+    else:
+        mod_text = "adding to stock"
 
     msg = await update.message.reply_text(f"Downloading receipt... ({mod_text})")
 
@@ -129,7 +143,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         photo_path,
         None, None, 0,
         "CAD",
-        "consumption" if tuketim else "expense",
+        mode,
         "pending",
         None,
     ))
@@ -181,7 +195,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             """, (receipt_id, name, cat, qty, unit, u_price, t_price))
 
             if name and qty > 0:
-                if tuketim:
+                if stock_subtracts:
                     cur.execute("""
                         UPDATE stock SET
                             current_quantity = MAX(0, current_quantity - ?),
@@ -213,15 +227,30 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ) or "  (could not read items)"
 
         stok_blok = "\n".join(stok_satirlari[:12]) if stok_satirlari else "  (no stock changes)"
-        mod_emoji = "\U0001F4E4" if tuketim else "\U0001F4E5"
+        if iade:
+            mod_emoji = "\U0001F501"  # 🔁
+            stock_label = "Stock returned (refund)"
+            header = "*Refund saved!*"
+        elif tuketim:
+            mod_emoji = "\U0001F4E4"  # 📤
+            stock_label = "Stock deducted"
+            header = "*Receipt saved!*"
+        else:
+            mod_emoji = "\U0001F4E5"  # 📥
+            stock_label = "Stock updated"
+            header = "*Receipt saved!*"
+
+        tax_amt = parsed.get("tax_amount") or 0
+        tax_line = f"Tax: *{tax_amt:.2f} {cur_sym}*\n" if tax_amt else ""
 
         await msg.edit_text(
-            f"*Receipt saved!*\n\n"
+            f"{header}\n\n"
             f"Store: {parsed.get('store_name','?')}\n"
             f"Date: {parsed.get('receipt_date') or 'Unknown'}\n"
-            f"Total: *{total:.2f} {cur_sym}*\n\n"
+            f"Total: *{total:.2f} {cur_sym}*\n"
+            f"{tax_line}\n"
             f"Items ({len(items)}):\n{item_lines}\n\n"
-            f"{mod_emoji} *Stock {'deducted' if tuketim else 'updated'}:*\n{stok_blok}\n\n"
+            f"{mod_emoji} *{stock_label}:*\n{stok_blok}\n\n"
             f"[Open Dashboard]({WEB_URL})",
             parse_mode="Markdown",
         )
@@ -314,9 +343,25 @@ async def cmd_ozet(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def _send_summary(chat_id: int, context):
     """Build and send today's summary to a chat. Reused by scheduled job."""
     db    = get_db()
-    gider = db.execute("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
+    gider = db.execute("""
+        SELECT COALESCE(SUM(
+            CASE WHEN type='refund' THEN -total_amount
+                 WHEN type='consumption' THEN 0
+                 ELSE total_amount END
+        ), 0)
+        FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'
+    """).fetchone()[0]
+    tax   = db.execute("""
+        SELECT COALESCE(SUM(
+            CASE WHEN type='refund' THEN -tax_amount
+                 WHEN type='consumption' THEN 0
+                 ELSE tax_amount END
+        ), 0)
+        FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'
+    """).fetchone()[0]
     gelir = db.execute("SELECT COALESCE(SUM(amount),0)       FROM income   WHERE date(income_date)=date('now','localtime')").fetchone()[0]
-    n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'").fetchone()[0]
+    n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success' AND type<>'refund'").fetchone()[0]
+    n_iade= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success' AND type='refund'").fetchone()[0]
     n_fail= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='failed'").fetchone()[0]
     low_stock = db.execute("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity").fetchone()[0]
 
@@ -325,7 +370,11 @@ async def _send_summary(chat_id: int, context):
         SELECT b.category, b.monthly_limit, b.scope,
                CASE b.scope
                  WHEN 'receipt' THEN (
-                   SELECT COALESCE(SUM(ri.total_price),0)
+                   SELECT COALESCE(SUM(
+                     CASE WHEN r.type='refund' THEN -ri.total_price
+                          WHEN r.type='consumption' THEN 0
+                          ELSE ri.total_price END
+                   ),0)
                    FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id
                    WHERE ri.category=b.category
                      AND strftime('%Y-%m',r.created_at)=strftime('%Y-%m','now','localtime')
@@ -351,12 +400,16 @@ async def _send_summary(chat_id: int, context):
     over_note   = "".join(f"\n\U0001F6A8 Budget OVER: *{r['category']}* ${r['spent']:.0f}/${r['monthly_limit']:.0f}" for r in over_budget)
     near_note   = "".join(f"\n\U0001F7E1 Budget 80%+: *{r['category']}* ${r['spent']:.0f}/${r['monthly_limit']:.0f}" for r in near_budget)
 
+    iade_note = f"  (incl. {n_iade} refund(s))" if n_iade else ""
+    tax_note  = f"\nTax     : {tax:>10.2f} CAD" if tax else ""
+
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
             f"{emoji} *Daily Summary*\n\n"
             f"Income  : {gelir:>10.2f} CAD\n"
-            f"Expense : {gider:>10.2f} CAD  ({n_fis} receipt(s))\n"
+            f"Expense : {gider:>10.2f} CAD  ({n_fis} receipt(s)){iade_note}"
+            f"{tax_note}\n"
             f"{'─'*30}\n"
             f"Net     : {net:>10.2f} CAD  ({'Profitable' if net >= 0 else 'In loss'})"
             f"{fail_note}{stock_note}{over_note}{near_note}\n\n"
@@ -382,22 +435,31 @@ async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     db = get_db()
 
-    # This week vs last week totals
-    this_w = db.execute("""
-        SELECT COALESCE(SUM(total_amount),0) FROM receipts
+    # This week vs last week totals (refund counts as negative, consumption excluded)
+    signed_total = """
+        CASE WHEN type='refund' THEN -total_amount
+             WHEN type='consumption' THEN 0
+             ELSE total_amount END
+    """
+    this_w = db.execute(f"""
+        SELECT COALESCE(SUM({signed_total}),0) FROM receipts
         WHERE date(created_at) >= date('now','localtime','-7 days')
           AND parse_status='success'
     """).fetchone()[0]
-    last_w = db.execute("""
-        SELECT COALESCE(SUM(total_amount),0) FROM receipts
+    last_w = db.execute(f"""
+        SELECT COALESCE(SUM({signed_total}),0) FROM receipts
         WHERE date(created_at) >= date('now','localtime','-14 days')
           AND date(created_at) <  date('now','localtime','-7 days')
           AND parse_status='success'
     """).fetchone()[0]
 
-    # Category breakdown this week
+    # Category breakdown this week (signed by receipt type)
     cats = db.execute("""
-        SELECT ri.category, ROUND(SUM(ri.total_price),2) AS total
+        SELECT ri.category, ROUND(SUM(
+            CASE WHEN r.type='refund' THEN -ri.total_price
+                 WHEN r.type='consumption' THEN 0
+                 ELSE ri.total_price END
+        ),2) AS total
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id=r.id
         WHERE date(r.created_at) >= date('now','localtime','-7 days')
@@ -405,9 +467,9 @@ async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         GROUP BY ri.category ORDER BY total DESC LIMIT 8
     """).fetchall()
 
-    # Top supplier this week
-    top_store = db.execute("""
-        SELECT store_name, ROUND(SUM(total_amount),2) AS total
+    # Top supplier this week (net = expense - refund)
+    top_store = db.execute(f"""
+        SELECT store_name, ROUND(SUM({signed_total}),2) AS total
         FROM receipts
         WHERE date(created_at) >= date('now','localtime','-7 days')
           AND parse_status='success' AND store_name IS NOT NULL

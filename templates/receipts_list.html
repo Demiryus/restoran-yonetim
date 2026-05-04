@@ -58,6 +58,10 @@
   .pagination{display:flex;align-items:center;gap:8px;margin-top:20px;justify-content:center}
   .pagination a{padding:6px 14px;border-radius:7px;text-decoration:none;color:#888;background:#1a1d2e;border:1px solid #2a2d3e;font-size:.85rem}
   .pagination a.active{background:#3b82f6;color:#fff;border-color:#3b82f6}
+  .type-pill{display:inline-block;font-size:.65rem;font-weight:600;padding:2px 7px;border-radius:5px;letter-spacing:.02em}
+  .type-pill.expense{background:#1e3a8a33;color:#60a5fa;border:1px solid #1e40af}
+  .type-pill.consumption{background:#7c2d1233;color:#fb923c;border:1px solid #9a3412}
+  .type-pill.refund{background:#14532d33;color:#4ade80;border:1px solid #166534}
   .pagination a.disabled{opacity:.35;pointer-events:none}
 
   /* ── LIGHTBOX ── */
@@ -118,13 +122,21 @@
           <div style="width:48px;height:40px;background:#13162a;border-radius:5px;display:inline-flex;align-items:center;justify-content:center;color:#2a2d3e;font-size:1.1rem;vertical-align:middle">📷</div>
           {% endif %}
         </td>
-        <td style="font-weight:600">{{ r.store_name or '—' }}</td>
+        <td style="font-weight:600">
+          {{ r.store_name or '—' }}
+          {% set t = r.type or 'expense' %}
+          {% if t != 'expense' %}
+            <span class="type-pill {{ t }}">{% if t == 'refund' %}🔁 REFUND{% elif t == 'consumption' %}📤 USE{% endif %}</span>
+          {% endif %}
+        </td>
         <td style="color:#888">{{ r.receipt_date or '—' }}</td>
         <td style="color:#666;font-size:.82rem">{{ r.created_at[:16] }}</td>
         <td style="color:#f59e0b;font-size:.82rem">
           {% if r.tax_amount %}${{ "%.2f"|format(r.tax_amount) }}{% else %}—{% endif %}
         </td>
-        <td style="font-weight:700;color:#ef4444">-${{ "%.2f"|format(r.total_amount) }} {{ r.currency or '' }}</td>
+        {% set sign_prefix = '+' if (r.type or 'expense') == 'refund' else '-' %}
+        {% set color = '#4ade80' if (r.type or 'expense') == 'refund' else ('#888' if (r.type or 'expense') == 'consumption' else '#ef4444') %}
+        <td style="font-weight:700;color:{{ color }}">{{ sign_prefix }}${{ "%.2f"|format(r.total_amount) }} {{ r.currency or '' }}</td>
         <td><a href="/fis/{{ r.id }}" class="btn" style="background:#374151;padding:5px 12px;font-size:.78rem">View</a></td>
       </tr>
       {% endfor %}
@@ -150,12 +162,20 @@
       <!-- Body -->
       <div class="receipt-body">
         <div class="receipt-head">
-          <div class="receipt-store">{{ r.store_name or 'Unknown Store' }}</div>
+          <div class="receipt-store">
+            {{ r.store_name or 'Unknown Store' }}
+            {% set t = r.type or 'expense' %}
+            {% if t != 'expense' %}
+              <span class="type-pill {{ t }}">{% if t == 'refund' %}🔁 REFUND{% elif t == 'consumption' %}📤 USE{% endif %}</span>
+            {% endif %}
+          </div>
           <div class="receipt-date">{{ r.receipt_date or r.created_at[:10] }}</div>
         </div>
 
+        {% set sign_prefix = '+' if (r.type or 'expense') == 'refund' else '-' %}
+        {% set tcolor = '#4ade80' if (r.type or 'expense') == 'refund' else ('#888' if (r.type or 'expense') == 'consumption' else '#ef4444') %}
         <div class="receipt-totals">
-          <span class="receipt-total">-${{ "%.2f"|format(r.total_amount) }} {{ r.currency or 'CAD' }}</span>
+          <span class="receipt-total" style="color:{{ tcolor }}">{{ sign_prefix }}${{ "%.2f"|format(r.total_amount) }} {{ r.currency or 'CAD' }}</span>
           {% if r.tax_amount %}<span class="receipt-tax">Tax ${{ "%.2f"|format(r.tax_amount) }}</span>{% endif %}
         </div>
 

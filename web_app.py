@@ -62,6 +62,17 @@ def scalar(query, params=()):
     return (row[0] or 0) if row else 0
 
 
+# Signed expressions: refund subtracts, consumption is excluded from financials.
+# Use {alias} placeholder when joining receipts with another alias (e.g. r.type vs type).
+SIGNED_TOTAL = """CASE WHEN {a}type='refund' THEN -{a}total_amount
+                       WHEN {a}type='consumption' THEN 0
+                       ELSE {a}total_amount END"""
+SIGNED_TAX   = """CASE WHEN {a}type='refund' THEN -{a}tax_amount
+                       WHEN {a}type='consumption' THEN 0
+                       ELSE {a}tax_amount END"""
+SIGNED_ITEM_PRICE = """CASE WHEN r.type='refund' THEN -ri.total_price
+                            WHEN r.type='consumption' THEN 0
+                            ELSE ri.total_price END"""
 
 
 # ─────────────────────────── Ana sayfa ────────────────────────────
@@ -95,12 +106,16 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
     else:
         date_filter_m = "1=1"
 
-    receipt_gider  = scalar(f"SELECT COALESCE(SUM(total_amount),0) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
+    signed_r = SIGNED_TOTAL.format(a="r.")
+    signed_tax_r = SIGNED_TAX.format(a="r.")
+    receipt_gider  = scalar(f"SELECT COALESCE(SUM({signed_r}),0) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
+    receipt_tax    = scalar(f"SELECT COALESCE(SUM({signed_tax_r}),0) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
     manual_gider   = scalar(f"SELECT COALESCE(SUM(amount),0) FROM manual_expenses WHERE {date_filter_m}")
     total_gider    = receipt_gider + manual_gider
     total_gelir    = scalar(f"SELECT COALESCE(SUM(amount),0) FROM income i WHERE {date_filter_i}")
     net            = total_gelir - total_gider
-    n_fis          = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success'")
+    n_fis          = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success' AND r.type<>'refund'")
+    n_iade         = scalar(f"SELECT COUNT(*) FROM receipts r WHERE {date_filter_r} AND r.parse_status='success' AND r.type='refund'")
 
     # Failed/pending receipts (always shown regardless of period)
     failed_receipts = fetch_all(
@@ -109,7 +124,7 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
     )
 
     son_fisler = fetch_all(
-        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.currency, r.created_at, r.parse_status "
+        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.tax_amount, r.currency, r.created_at, r.parse_status, r.type "
         f"FROM receipts r WHERE {date_filter_r} AND r.parse_status='success' ORDER BY r.created_at DESC LIMIT 10"
     )
 
@@ -127,16 +142,17 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
             fis_items.setdefault(row["receipt_id"], []).append(row)
 
     kategori_data = fetch_all(
-        "SELECT ri.category, ROUND(SUM(ri.total_price),2) as toplam "
+        f"SELECT ri.category, ROUND(SUM({SIGNED_ITEM_PRICE}),2) as toplam "
         "FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id "
-        f"WHERE {date_filter_r} AND ri.category IS NOT NULL "
-        "GROUP BY ri.category ORDER BY toplam DESC"
+        f"WHERE {date_filter_r} AND r.parse_status='success' AND ri.category IS NOT NULL "
+        "GROUP BY ri.category HAVING toplam > 0 ORDER BY toplam DESC"
     )
 
     _trend_days = [(date.today() - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
+    _trend_signed = SIGNED_TOTAL.format(a="")
     _gider_rows = {r["d"]: r["v"] for r in fetch_all(
-        "SELECT date(created_at) as d, COALESCE(SUM(total_amount),0) as v FROM receipts "
-        "WHERE date(created_at) >= ? GROUP BY date(created_at)", (_trend_days[0],)
+        f"SELECT date(created_at) as d, COALESCE(SUM({_trend_signed}),0) as v FROM receipts "
+        "WHERE date(created_at) >= ? AND parse_status='success' GROUP BY date(created_at)", (_trend_days[0],)
     )}
     _gelir_rows = {r["d"]: r["v"] for r in fetch_all(
         "SELECT date(income_date) as d, COALESCE(SUM(amount),0) as v FROM income "
@@ -177,8 +193,8 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
     budget_status = []
     for b in budgets:
         if b["scope"] == "receipt":
-            spent = scalar("""
-                SELECT COALESCE(SUM(ri.total_price),0)
+            spent = scalar(f"""
+                SELECT COALESCE(SUM({SIGNED_ITEM_PRICE}),0)
                 FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id
                 WHERE ri.category=? AND strftime('%Y-%m',r.created_at)=strftime('%Y-%m','now','localtime')
                   AND r.parse_status='success'
@@ -196,8 +212,9 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
         "request": request,
         "period": period, "label": label,
         "total_gelir": total_gelir, "total_gider": total_gider,
-        "receipt_gider": receipt_gider, "manual_gider": manual_gider,
-        "net": net, "n_fis": n_fis,
+        "receipt_gider": receipt_gider, "receipt_tax": receipt_tax,
+        "manual_gider": manual_gider,
+        "net": net, "n_fis": n_fis, "n_iade": n_iade,
         "son_fisler": son_fisler,
         "fis_items": fis_items,
         "son_gelirler": son_gelirler,
@@ -231,6 +248,65 @@ async def fis_detay(request: Request, receipt_id: int, _auth: None = Depends(req
         "categories": get_categories(),
     })
 
+def _apply_stock_effect(db, items, mode: str, sign: int):
+    """Apply stock change for given mode and sign (+1 = forward, -1 = reverse).
+    Modes: 'expense' adds qty to stock; 'consumption' and 'refund' subtract qty.
+    """
+    for item in items:
+        name = item["item_name"]
+        qty  = (item["quantity"] or 0)
+        if qty <= 0 or not name:
+            continue
+        # Direction the mode would push stock when forward applied:
+        direction = +1 if mode == "expense" else -1
+        delta = direction * sign * qty
+        if delta > 0:
+            db.execute("""
+                INSERT INTO stock (item_name, current_quantity, last_updated)
+                VALUES (?, ?, datetime('now','localtime'))
+                ON CONFLICT(item_name) DO UPDATE SET
+                    current_quantity = current_quantity + ?,
+                    last_updated     = datetime('now','localtime')
+            """, (name, delta, delta))
+        else:
+            db.execute("""
+                UPDATE stock SET
+                    current_quantity = MAX(0, current_quantity + ?),
+                    last_updated     = datetime('now','localtime')
+                WHERE item_name = ?
+            """, (delta, name))
+
+
+@app.post("/fis/{receipt_id}/set-type")
+async def fis_set_type(receipt_id: int, new_type: str = Form(...), _auth: None = Depends(require_auth)):
+    """Change a receipt's type (expense / consumption / refund) and adjust stock."""
+    if new_type not in ("expense", "consumption", "refund"):
+        raise HTTPException(status_code=400, detail="Invalid type")
+
+    db = get_db()
+    row = db.execute("SELECT type FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    old_type = row["type"] or "expense"
+    if old_type == new_type:
+        db.close()
+        return RedirectResponse(f"/fis/{receipt_id}?saved=1", status_code=303)
+
+    items = db.execute(
+        "SELECT item_name, quantity FROM receipt_items WHERE receipt_id=?", (receipt_id,)
+    ).fetchall()
+
+    # Reverse old effect, then apply new effect
+    _apply_stock_effect(db, items, old_type, sign=-1)
+    _apply_stock_effect(db, items, new_type, sign=+1)
+
+    db.execute("UPDATE receipts SET type=? WHERE id=?", (new_type, receipt_id))
+    db.commit(); db.close()
+    return RedirectResponse(f"/fis/{receipt_id}?saved=1", status_code=303)
+
+
 @app.post("/fis/{receipt_id}/sil")
 async def fis_sil(receipt_id: int, _auth: None = Depends(require_auth)):
     db = get_db()
@@ -243,7 +319,10 @@ async def fis_sil(receipt_id: int, _auth: None = Depends(require_auth)):
     if row["photo_path"]:
         Path(row["photo_path"]).unlink(missing_ok=True)
 
-    # Stoğu geri al: alım fişiyse stoğu düş, tüketim fişiyse stoğu geri ekle
+    # Stoğu geri al:
+    #   expense fişi silindi → stoğu düş (alımı geri al)
+    #   consumption silindi  → stoğu geri ekle (tüketimi geri al)
+    #   refund silindi       → stoğu geri ekle (iadeyi geri al, ürünler bizde kaldı)
     items = db.execute(
         "SELECT item_name, quantity FROM receipt_items WHERE receipt_id=?", (receipt_id,)
     ).fetchall()
@@ -252,16 +331,17 @@ async def fis_sil(receipt_id: int, _auth: None = Depends(require_auth)):
     for item in items:
         name = item["item_name"]
         qty  = item["quantity"] or 0
-        if qty <= 0:
+        if qty <= 0 or not name:
             continue
-        if receipt_type == "consumption":
-            # Tüketim fişi silindi → stoğu geri ekle
+        if receipt_type in ("consumption", "refund"):
+            # Stoğu geri ekle (yoksa oluştur)
             db.execute("""
-                UPDATE stock SET
+                INSERT INTO stock (item_name, current_quantity, last_updated)
+                VALUES (?, ?, datetime('now','localtime'))
+                ON CONFLICT(item_name) DO UPDATE SET
                     current_quantity = current_quantity + ?,
-                    last_updated = datetime('now','localtime')
-                WHERE item_name = ?
-            """, (qty, name))
+                    last_updated     = datetime('now','localtime')
+            """, (name, qty, qty))
         else:
             # Alım fişi silindi → stoğu düş (0'ın altına inme)
             db.execute("""
@@ -271,9 +351,16 @@ async def fis_sil(receipt_id: int, _auth: None = Depends(require_auth)):
                 WHERE item_name = ?
             """, (qty, name))
 
-    db.execute("DELETE FROM receipts WHERE id=?", (receipt_id,))
+    # Hard delete: items first (defensive — CASCADE would do it but be explicit), then receipt
+    db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (receipt_id,))
+    db.execute("DELETE FROM receipts      WHERE id=?",         (receipt_id,))
     db.commit()
+
+    # Verify the row is actually gone
+    still_there = db.execute("SELECT 1 FROM receipts WHERE id=?", (receipt_id,)).fetchone()
     db.close()
+    if still_there:
+        raise HTTPException(status_code=500, detail=f"Receipt {receipt_id} could not be deleted")
     return RedirectResponse("/", status_code=303)
 
 
@@ -294,7 +381,8 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
 
     try:
         parsed, raw = parse_receipt(photo_path, categories=get_categories())
-        tuketim = (row["type"] == "consumption")
+        receipt_type = row["type"] or "expense"
+        stock_subtracts = receipt_type in ("consumption", "refund")
 
         db.execute("""
             UPDATE receipts SET
@@ -335,7 +423,7 @@ async def fis_retry(receipt_id: int, _auth: None = Depends(require_auth)):
             """, (receipt_id, name, cat, qty, unit, u_price, t_price))
 
             if name and qty > 0:
-                if tuketim:
+                if stock_subtracts:
                     db.execute("""
                         UPDATE stock SET
                             current_quantity = MAX(0, current_quantity - ?),
@@ -520,9 +608,10 @@ async def stok_sil(item_name: str, _auth: None = Depends(require_auth)):
 
 @app.get("/api/summary")
 async def api_summary(_auth: None = Depends(require_auth)):
+    signed = SIGNED_TOTAL.format(a="")
     return {
         "bugun_gelir": scalar("SELECT COALESCE(SUM(amount),0) FROM income WHERE date(income_date)=date('now','localtime')"),
-        "bugun_gider": scalar("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=date('now','localtime')"),
+        "bugun_gider": scalar(f"SELECT COALESCE(SUM({signed}),0) FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'"),
         "toplam_stok": scalar("SELECT COUNT(*) FROM stock"),
         "dusuk_stok":  scalar("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity"),
     }
@@ -612,14 +701,17 @@ async def tax_summary(request: Request, year: int = None, _auth: None = Depends(
     if not year:
         year = date.today().year
 
-    # Monthly tax from receipts
-    receipt_tax = fetch_all("""
+    # Monthly tax from receipts (refund subtracts, consumption excluded)
+    signed_tax_expr   = SIGNED_TAX.format(a="")
+    signed_total_expr = SIGNED_TOTAL.format(a="")
+    receipt_tax = fetch_all(f"""
         SELECT strftime('%Y-%m', created_at) AS month,
-               ROUND(SUM(tax_amount),2) AS tax,
-               ROUND(SUM(total_amount),2) AS total,
+               ROUND(SUM({signed_tax_expr}),2)   AS tax,
+               ROUND(SUM({signed_total_expr}),2) AS total,
                COUNT(*) AS n
         FROM receipts
-        WHERE strftime('%Y', created_at) = ? AND parse_status='success' AND tax_amount > 0
+        WHERE strftime('%Y', created_at) = ? AND parse_status='success'
+          AND type<>'consumption' AND tax_amount <> 0
         GROUP BY month ORDER BY month
     """, (str(year),))
 
@@ -653,7 +745,7 @@ async def tax_summary(request: Request, year: int = None, _auth: None = Depends(
     # Available years
     years = fetch_all("""
         SELECT DISTINCT strftime('%Y', created_at) AS yr FROM receipts
-        WHERE parse_status='success' AND tax_amount > 0
+        WHERE parse_status='success' AND tax_amount <> 0 AND type<>'consumption'
         UNION
         SELECT DISTINCT strftime('%Y', expense_date) FROM manual_expenses WHERE tax_amount > 0
         ORDER BY yr DESC
@@ -697,7 +789,7 @@ async def receipts_page(
     total_pages = max(1, (total_count + per_page - 1) // per_page)
 
     receipts_raw = fetch_all(
-        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.tax_amount, r.currency, r.created_at, r.photo_path "
+        f"SELECT r.id, r.store_name, r.receipt_date, r.total_amount, r.tax_amount, r.currency, r.created_at, r.photo_path, r.type "
         f"FROM receipts r {where} ORDER BY r.created_at DESC LIMIT ? OFFSET ?",
         tuple(params + [per_page, offset])
     )
@@ -829,17 +921,19 @@ async def export_stock(_auth: None = Depends(require_auth)):
 
 @app.get("/suppliers", response_class=HTMLResponse)
 async def suppliers_page(request: Request, _auth: None = Depends(require_auth)):
-    # Per-store summary
-    stores = fetch_all("""
+    # Per-store summary (refund subtracts from total, consumption excluded)
+    signed_total_r = SIGNED_TOTAL.format(a="")
+    stores = fetch_all(f"""
         SELECT
             store_name,
-            COUNT(*)                          AS receipt_count,
-            ROUND(SUM(total_amount), 2)       AS total_spent,
-            ROUND(AVG(total_amount), 2)       AS avg_per_visit,
-            MAX(receipt_date)                 AS last_visit,
-            MIN(receipt_date)                 AS first_visit
+            COUNT(*)                                      AS receipt_count,
+            ROUND(SUM({signed_total_r}), 2)               AS total_spent,
+            ROUND(AVG(CASE WHEN type='consumption' THEN NULL ELSE total_amount END), 2) AS avg_per_visit,
+            MAX(receipt_date)                             AS last_visit,
+            MIN(receipt_date)                             AS first_visit
         FROM receipts
         WHERE parse_status = 'success' AND store_name IS NOT NULL AND store_name != ''
+          AND type<>'consumption'
         GROUP BY store_name
         ORDER BY total_spent DESC
     """)
@@ -920,9 +1014,9 @@ async def suppliers_page(request: Request, _auth: None = Depends(require_auth)):
 
 @app.get("/weekly-report", response_class=HTMLResponse)
 async def weekly_report_page(request: Request, _auth: None = Depends(require_auth)):
-    # This week vs last week by category
-    this_week = fetch_all("""
-        SELECT ri.category, ROUND(SUM(ri.total_price), 2) AS total
+    # This week vs last week by category (refund subtracts, consumption excluded)
+    this_week = fetch_all(f"""
+        SELECT ri.category, ROUND(SUM({SIGNED_ITEM_PRICE}), 2) AS total
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id = r.id
         WHERE date(r.created_at) >= date('now','localtime','-7 days')
@@ -930,8 +1024,8 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
           AND ri.category IS NOT NULL
         GROUP BY ri.category ORDER BY total DESC
     """)
-    last_week = fetch_all("""
-        SELECT ri.category, ROUND(SUM(ri.total_price), 2) AS total
+    last_week = fetch_all(f"""
+        SELECT ri.category, ROUND(SUM({SIGNED_ITEM_PRICE}), 2) AS total
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id = r.id
         WHERE date(r.created_at) >= date('now','localtime','-14 days')
@@ -957,16 +1051,19 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
     # Daily spend for last 14 days
     daily = []
     from datetime import timedelta as td
+    _wr_signed = SIGNED_TOTAL.format(a="")
     for i in range(13, -1, -1):
         d = (date.today() - td(days=i)).isoformat()
-        g = scalar("SELECT COALESCE(SUM(total_amount),0) FROM receipts WHERE date(created_at)=? AND parse_status='success'", (d,))
+        g = scalar(f"SELECT COALESCE(SUM({_wr_signed}),0) FROM receipts WHERE date(created_at)=? AND parse_status='success'", (d,))
         daily.append({"date": d[-5:], "total": g, "week": "last" if i >= 7 else "this"})
 
-    # Top items this week
-    top_items = fetch_all("""
+    # Top items this week (signed by receipt type)
+    top_items = fetch_all(f"""
         SELECT ri.item_name, ri.category, ri.unit,
-               ROUND(SUM(ri.quantity), 2) AS total_qty,
-               ROUND(SUM(ri.total_price), 2) AS total_spent
+               ROUND(SUM(CASE WHEN r.type='refund' THEN -ri.quantity
+                              WHEN r.type='consumption' THEN 0
+                              ELSE ri.quantity END), 2) AS total_qty,
+               ROUND(SUM({SIGNED_ITEM_PRICE}), 2) AS total_spent
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id = r.id
         WHERE date(r.created_at) >= date('now','localtime','-7 days')
