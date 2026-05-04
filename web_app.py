@@ -248,6 +248,66 @@ async def fis_detay(request: Request, receipt_id: int, _auth: None = Depends(req
         "categories": get_categories(),
     })
 
+@app.get("/manuel-fis", response_class=HTMLResponse)
+async def fis_manuel_page(request: Request, _auth: None = Depends(require_auth)):
+    return templates.TemplateResponse("fis_manuel.html", {
+        "request": request,
+        "categories": get_categories(),
+        "today": date.today().isoformat(),
+    })
+
+
+@app.post("/manuel-fis/ekle")
+async def fis_manuel_ekle(
+    request: Request,
+    receipt_type: str = Form(...),
+    store_name: str = Form(""),
+    receipt_date: str = Form(""),
+    total_amount: float = Form(0),
+    tax_amount: float = Form(0),
+    currency: str = Form("CAD"),
+    _auth: None = Depends(require_auth),
+):
+    """Create a receipt manually (no photo). Type can be expense / consumption / refund."""
+    if receipt_type not in ("expense", "consumption", "refund"):
+        raise HTTPException(status_code=400, detail="Invalid type")
+
+    form = await request.form()
+    names      = form.getlist("item_name")
+    qtys       = form.getlist("item_qty")
+    units      = form.getlist("item_unit")
+    prices     = form.getlist("item_price")
+    cats       = form.getlist("item_category")
+
+    db = get_db()
+    db.execute("""
+        INSERT INTO receipts (store_name, receipt_date, total_amount, tax_amount, currency, type, parse_status, telegram_username)
+        VALUES (?, ?, ?, ?, ?, ?, 'success', 'web')
+    """, (store_name or "Manual entry", receipt_date or None, total_amount, tax_amount, currency, receipt_type))
+    rid = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+    items_for_stock = []
+    for i, n in enumerate(names):
+        n = (n or "").strip()
+        if not n:
+            continue
+        qty   = float(qtys[i])   if i < len(qtys)   and qtys[i]   else 0
+        unit  = units[i]         if i < len(units)              else ""
+        price = float(prices[i]) if i < len(prices) and prices[i] else 0
+        cat   = cats[i]          if i < len(cats)   and cats[i]  else "other"
+        u_price = (price / qty) if qty else 0
+        db.execute("""
+            INSERT INTO receipt_items (receipt_id, item_name, category, quantity, unit, unit_price, total_price)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (rid, n, cat, qty, unit, u_price, price))
+        if qty > 0:
+            items_for_stock.append({"item_name": n, "quantity": qty})
+
+    _apply_stock_effect(db, items_for_stock, receipt_type, sign=+1)
+    db.commit(); db.close()
+    return RedirectResponse(f"/fis/{rid}?saved=1", status_code=303)
+
+
 def _apply_stock_effect(db, items, mode: str, sign: int):
     """Apply stock change for given mode and sign (+1 = forward, -1 = reverse).
     Modes: 'expense' adds qty to stock; 'consumption' and 'refund' subtract qty.
@@ -260,7 +320,7 @@ def _apply_stock_effect(db, items, mode: str, sign: int):
         # Direction the mode would push stock when forward applied:
         direction = +1 if mode == "expense" else -1
         delta = direction * sign * qty
-        if delta > 0:
+        if delta >= 0:
             db.execute("""
                 INSERT INTO stock (item_name, current_quantity, last_updated)
                 VALUES (?, ?, datetime('now','localtime'))
@@ -269,6 +329,12 @@ def _apply_stock_effect(db, items, mode: str, sign: int):
                     last_updated     = datetime('now','localtime')
             """, (name, delta, delta))
         else:
+            # Negative delta — ensure row exists, then clamp at 0
+            db.execute("""
+                INSERT INTO stock (item_name, current_quantity, last_updated)
+                VALUES (?, 0, datetime('now','localtime'))
+                ON CONFLICT(item_name) DO NOTHING
+            """, (name,))
             db.execute("""
                 UPDATE stock SET
                     current_quantity = MAX(0, current_quantity + ?),

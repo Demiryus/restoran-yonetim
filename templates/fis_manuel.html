@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Add Manual Receipt / Refund</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;padding:24px}
+  .container{max-width:900px;margin:0 auto}
+  .nav-links{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap}
+  .nav-links a{color:#3b82f6;text-decoration:none;font-size:.83rem;
+    background:#1a1d2e;border:1px solid #2a2d3e;padding:5px 12px;border-radius:6px}
+  .nav-links a:hover{color:#60a5fa;border-color:#3b82f6}
+
+  h1{font-size:1.4rem;margin-bottom:6px;color:#fff}
+  .sub{font-size:.85rem;color:#666;margin-bottom:24px}
+
+  .card{background:#1a1d2e;border:1px solid #2a2d3e;border-radius:12px;padding:24px;margin-bottom:20px}
+  .row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:14px}
+  label{font-size:.72rem;color:#666;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:5px}
+  input, select{width:100%;background:#0f1117;border:1px solid #3a3d4e;color:#e0e0e0;
+    padding:9px 12px;border-radius:8px;font-size:.9rem}
+  input:focus, select:focus{outline:none;border-color:#3b82f6}
+
+  .type-group{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:6px}
+  .type-opt{display:block;cursor:pointer;padding:14px;border:2px solid #2a2d3e;border-radius:10px;
+    text-align:center;background:#0f1117;transition:.15s}
+  .type-opt:hover{border-color:#3a3d4e}
+  .type-opt input{display:none}
+  .type-opt-emoji{font-size:1.5rem;margin-bottom:4px}
+  .type-opt-name{font-size:.85rem;font-weight:600}
+  .type-opt-desc{font-size:.7rem;color:#666;margin-top:3px}
+  .type-opt.selected.expense    {border-color:#3b82f6;background:#1e3a8a22}
+  .type-opt.selected.consumption{border-color:#fb923c;background:#7c2d1222}
+  .type-opt.selected.refund     {border-color:#4ade80;background:#14532d22}
+
+  table{width:100%;border-collapse:separate;border-spacing:0 6px}
+  th{text-align:left;padding:6px 8px;color:#666;font-size:.7rem;text-transform:uppercase;font-weight:500}
+  td{padding:0 4px}
+  td input, td select{padding:7px 10px;font-size:.85rem}
+  .item-row .col-action{width:38px}
+  .btn{padding:9px 18px;border-radius:8px;border:none;cursor:pointer;font-size:.85rem;
+    font-weight:600;text-decoration:none;display:inline-block}
+  .btn-add{background:#1e293b;color:#60a5fa;border:1px dashed #3b82f6;padding:8px 14px;font-size:.82rem;width:100%;margin-top:6px}
+  .btn-add:hover{background:#1e3a8a44}
+  .btn-remove{background:#7f1d1d;color:#fca5a5;padding:5px 9px;font-size:.85rem;border-radius:6px;
+    border:1px solid #991b1b;cursor:pointer}
+  .btn-remove:hover{background:#991b1b}
+  .btn-save{background:#16a34a;color:#fff;padding:12px 28px;font-size:.95rem}
+  .btn-save:hover{background:#22c55e}
+  .btn-cancel{background:#1a1d2e;border:1px solid #2a2d3e;color:#aaa;padding:12px 22px}
+  .btn-cancel:hover{color:#fff}
+
+  .hint{font-size:.78rem;color:#888;margin-top:8px;line-height:1.5}
+  .total-summary{margin-top:14px;padding:14px;background:#0f1117;border-radius:10px;
+    border:1px solid #2a2d3e;font-size:.9rem}
+  .total-summary .row-line{display:flex;justify-content:space-between;padding:3px 0}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="nav-links">
+    <a href="/">← Dashboard</a>
+    <a href="/receipts">All Receipts</a>
+  </div>
+
+  <h1>➕ Add Manual Receipt</h1>
+  <p class="sub">Use this when there's no photo to upload — useful for refunds, manual purchases, or consumption tracking.</p>
+
+  <form method="post" action="/manuel-fis/ekle" id="manualForm">
+
+    <!-- ── Type Selector ── -->
+    <div class="card">
+      <label style="margin-bottom:10px">Receipt Type</label>
+      <div class="type-group">
+        <label class="type-opt expense" id="opt-expense">
+          <input type="radio" name="receipt_type" value="expense" checked onchange="updateType()">
+          <div class="type-opt-emoji">📥</div>
+          <div class="type-opt-name">Purchase</div>
+          <div class="type-opt-desc">+ stock, + expense</div>
+        </label>
+        <label class="type-opt consumption" id="opt-consumption">
+          <input type="radio" name="receipt_type" value="consumption" onchange="updateType()">
+          <div class="type-opt-emoji">📤</div>
+          <div class="type-opt-name">Consumption</div>
+          <div class="type-opt-desc">- stock, no $ effect</div>
+        </label>
+        <label class="type-opt refund" id="opt-refund">
+          <input type="radio" name="receipt_type" value="refund" onchange="updateType()">
+          <div class="type-opt-emoji">🔁</div>
+          <div class="type-opt-name">Refund</div>
+          <div class="type-opt-desc">- stock, - expense</div>
+        </label>
+      </div>
+    </div>
+
+    <!-- ── Receipt Info ── -->
+    <div class="card">
+      <div class="row">
+        <div>
+          <label>Store / Vendor</label>
+          <input type="text" name="store_name" placeholder="e.g. Costco, Sysco, Walmart…">
+        </div>
+        <div>
+          <label>Receipt Date</label>
+          <input type="date" name="receipt_date" value="{{ today }}">
+        </div>
+        <div>
+          <label>Currency</label>
+          <input type="text" name="currency" value="CAD" maxlength="6">
+        </div>
+      </div>
+      <div class="row">
+        <div>
+          <label>Total Amount (incl. tax)</label>
+          <input type="number" name="total_amount" id="totalInput" step="0.01" min="0" value="0" required>
+        </div>
+        <div>
+          <label>Tax Amount</label>
+          <input type="number" name="tax_amount" id="taxInput" step="0.01" min="0" value="0">
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Items ── -->
+    <div class="card">
+      <label style="margin-bottom:10px">Items</label>
+      <table id="itemsTable">
+        <thead>
+          <tr>
+            <th>Item Name</th>
+            <th style="width:90px">Qty</th>
+            <th style="width:80px">Unit</th>
+            <th style="width:110px">Total Price</th>
+            <th style="width:130px">Category</th>
+            <th class="col-action"></th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody">
+          <!-- rows injected by JS -->
+        </tbody>
+      </table>
+      <button type="button" class="btn btn-add" onclick="addRow()">+ Add Item</button>
+
+      <div class="total-summary">
+        <div class="row-line">
+          <span style="color:#888">Items subtotal</span>
+          <span id="itemsTotal" style="color:#fff;font-weight:600">$0.00</span>
+        </div>
+        <div class="row-line">
+          <span style="color:#888">Stock effect</span>
+          <span id="stockEffect" style="color:#888;font-weight:600">none</span>
+        </div>
+      </div>
+
+      <p class="hint">
+        💡 Item totals are summed and shown above. Stock will be auto-adjusted based on selected type.
+        Leave empty rows blank — they'll be skipped.
+      </p>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <a href="/" class="btn btn-cancel">Cancel</a>
+      <button type="submit" class="btn btn-save">✓ Save Receipt</button>
+    </div>
+  </form>
+</div>
+
+<script>
+const CATEGORIES = {{ categories|tojson }};
+
+function rowHTML() {
+  const opts = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+  return `
+    <tr class="item-row">
+      <td><input type="text" name="item_name" placeholder="Tomato" oninput="updateTotals()"></td>
+      <td><input type="number" name="item_qty" step="0.01" min="0" placeholder="0" oninput="updateTotals()"></td>
+      <td><input type="text" name="item_unit" placeholder="kg"></td>
+      <td><input type="number" name="item_price" step="0.01" min="0" placeholder="0.00" oninput="updateTotals()"></td>
+      <td><select name="item_category">${opts}</select></td>
+      <td class="col-action"><button type="button" class="btn-remove" onclick="removeRow(this)">✕</button></td>
+    </tr>`;
+}
+
+function addRow() {
+  document.getElementById('itemsBody').insertAdjacentHTML('beforeend', rowHTML());
+}
+
+function removeRow(btn) {
+  btn.closest('tr').remove();
+  updateTotals();
+}
+
+function updateTotals() {
+  let sum = 0;
+  document.querySelectorAll('input[name="item_price"]').forEach(inp => {
+    sum += parseFloat(inp.value) || 0;
+  });
+  document.getElementById('itemsTotal').textContent = '$' + sum.toFixed(2);
+}
+
+function updateType() {
+  const t = document.querySelector('input[name="receipt_type"]:checked').value;
+  document.querySelectorAll('.type-opt').forEach(el => el.classList.remove('selected'));
+  document.getElementById('opt-' + t).classList.add('selected');
+
+  const fx = document.getElementById('stockEffect');
+  if (t === 'expense')          { fx.textContent = '➕ Stock +qty (purchase)';     fx.style.color = '#60a5fa'; }
+  else if (t === 'consumption') { fx.textContent = '➖ Stock -qty (consumed)';     fx.style.color = '#fb923c'; }
+  else if (t === 'refund')      { fx.textContent = '🔁 Stock -qty + Expense -$';   fx.style.color = '#4ade80'; }
+}
+
+// Init: 3 empty rows + select expense
+addRow(); addRow(); addRow();
+updateType();
+</script>
+</body>
+</html>
