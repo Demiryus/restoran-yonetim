@@ -459,12 +459,11 @@ async def _send_backup(chat_id: int, context, label: str = "scheduled"):
                 document=f,
                 filename=f"bodega_{ts}.db",
                 caption=(
-                    f"\U0001F4E6 *Bodega backup* ({label})\n"
+                    f"\U0001F4E6 Bodega backup ({label})\n"
                     f"Time: {ts} UTC\n"
                     f"Size: {size_kb:.1f} KB\n"
                     f"Receipts: {n_receipts} · Items: {n_items} · Stock: {n_stock}"
                 ),
-                parse_mode="Markdown",
             )
     finally:
         try: _os.remove(tmp_path)
