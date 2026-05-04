@@ -250,9 +250,13 @@ async def fis_detay(request: Request, receipt_id: int, _auth: None = Depends(req
 
 @app.get("/manuel-fis", response_class=HTMLResponse)
 async def fis_manuel_page(request: Request, _auth: None = Depends(require_auth)):
+    stock_items = fetch_all(
+        "SELECT item_name, current_quantity, unit, category FROM stock ORDER BY item_name"
+    )
     return templates.TemplateResponse("fis_manuel.html", {
         "request": request,
         "categories": get_categories(),
+        "stock_items": stock_items,
         "today": date.today().isoformat(),
     })
 

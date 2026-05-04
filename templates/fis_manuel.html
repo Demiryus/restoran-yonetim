@@ -56,6 +56,13 @@
   .total-summary{margin-top:14px;padding:14px;background:#0f1117;border-radius:10px;
     border:1px solid #2a2d3e;font-size:.9rem}
   .total-summary .row-line{display:flex;justify-content:space-between;padding:3px 0}
+
+  .stock-pill{background:#0f1117;border:1px solid #2a2d3e;border-radius:8px;padding:9px 12px;
+    cursor:pointer;transition:.12s;user-select:none}
+  .stock-pill:hover{background:#1a2747;border-color:#3b82f6;transform:translateY(-1px)}
+  .stock-pill-name{font-size:.88rem;font-weight:600;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .stock-pill-meta{font-size:.7rem;color:#666;margin-top:2px}
+  .stock-pill.hide{display:none}
 </style>
 </head>
 <body>
@@ -124,6 +131,32 @@
       </div>
     </div>
 
+    <!-- ── Stock picker (quick-add from existing stock) ── -->
+    <div class="card">
+      <label style="margin-bottom:6px">Quick add from stock <span style="text-transform:none;color:#666;font-weight:normal">— click any item to add it as a row</span></label>
+      <input type="text" id="stockSearch" placeholder="🔍 Search stock items…"
+             style="margin-bottom:10px"
+             oninput="filterStock(this.value)">
+      <div id="stockGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;max-height:280px;overflow-y:auto;padding:4px">
+        {% for s in stock_items %}
+          <div class="stock-pill" data-name="{{ (s.item_name or '')|lower }}"
+               data-iname="{{ s.item_name }}"
+               data-qty="{{ s.current_quantity or 0 }}"
+               data-unit="{{ s.unit or '' }}"
+               data-cat="{{ s.category or 'other' }}"
+               onclick="addFromStock(this)">
+            <div class="stock-pill-name">{{ s.item_name }}</div>
+            <div class="stock-pill-meta">{{ '%.1f'|format(s.current_quantity or 0) }} {{ s.unit or '' }} · {{ s.category or '—' }}</div>
+          </div>
+        {% else %}
+          <div style="grid-column:1/-1;color:#666;font-size:.85rem;padding:14px;text-align:center">
+            No stock items yet. Add items below or via the Stock page.
+          </div>
+        {% endfor %}
+      </div>
+      <p class="hint">💡 Click a tile above to copy that item into the form below — name, unit, and category fill automatically.</p>
+    </div>
+
     <!-- ── Items ── -->
     <div class="card">
       <label style="margin-bottom:10px">Items</label>
@@ -168,29 +201,96 @@
   </form>
 </div>
 
+<datalist id="stockNames">
+  {% for s in stock_items %}<option value="{{ s.item_name }}">{% endfor %}
+</datalist>
+
 <script>
 const CATEGORIES = {{ categories|tojson }};
+const STOCK_LOOKUP = {
+  {% for s in stock_items %}
+    "{{ s.item_name|replace('"','\\"') }}": {
+      unit: "{{ s.unit or '' }}",
+      cat: "{{ s.category or 'other' }}",
+      qty: {{ s.current_quantity or 0 }}
+    }{% if not loop.last %},{% endif %}
+  {% endfor %}
+};
 
-function rowHTML() {
-  const opts = CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('');
+function rowHTML(prefill) {
+  prefill = prefill || {};
+  const opts = CATEGORIES.map(c =>
+    `<option value="${c}" ${c===prefill.cat?'selected':''}>${c}</option>`
+  ).join('');
   return `
     <tr class="item-row">
-      <td><input type="text" name="item_name" placeholder="Tomato" oninput="updateTotals()"></td>
-      <td><input type="number" name="item_qty" step="0.01" min="0" placeholder="0" oninput="updateTotals()"></td>
-      <td><input type="text" name="item_unit" placeholder="kg"></td>
-      <td><input type="number" name="item_price" step="0.01" min="0" placeholder="0.00" oninput="updateTotals()"></td>
+      <td><input type="text" name="item_name" list="stockNames" placeholder="Tomato"
+                 value="${prefill.name || ''}"
+                 oninput="updateTotals(); autoFillRow(this)"></td>
+      <td><input type="number" name="item_qty" step="0.01" min="0" placeholder="0"
+                 value="${prefill.qty || ''}" oninput="updateTotals()"></td>
+      <td><input type="text" name="item_unit" placeholder="kg" value="${prefill.unit || ''}"></td>
+      <td><input type="number" name="item_price" step="0.01" min="0" placeholder="0.00"
+                 oninput="updateTotals()"></td>
       <td><select name="item_category">${opts}</select></td>
       <td class="col-action"><button type="button" class="btn-remove" onclick="removeRow(this)">✕</button></td>
     </tr>`;
 }
 
-function addRow() {
-  document.getElementById('itemsBody').insertAdjacentHTML('beforeend', rowHTML());
+function addRow(prefill) {
+  document.getElementById('itemsBody').insertAdjacentHTML('beforeend', rowHTML(prefill));
 }
 
 function removeRow(btn) {
   btn.closest('tr').remove();
   updateTotals();
+}
+
+function autoFillRow(nameInput) {
+  const v = nameInput.value.trim();
+  const data = STOCK_LOOKUP[v];
+  if (!data) return;
+  const tr = nameInput.closest('tr');
+  const unitInp = tr.querySelector('input[name="item_unit"]');
+  const catSel  = tr.querySelector('select[name="item_category"]');
+  if (unitInp && !unitInp.value) unitInp.value = data.unit;
+  if (catSel  && data.cat) catSel.value = data.cat;
+}
+
+function addFromStock(el) {
+  const name = el.dataset.iname;
+  const unit = el.dataset.unit;
+  const cat  = el.dataset.cat;
+
+  // Fill the first empty row, otherwise add a new one
+  const emptyRow = Array.from(document.querySelectorAll('#itemsBody tr')).find(tr => {
+    const inp = tr.querySelector('input[name="item_name"]');
+    return inp && !inp.value.trim();
+  });
+
+  if (emptyRow) {
+    emptyRow.querySelector('input[name="item_name"]').value = name;
+    const u = emptyRow.querySelector('input[name="item_unit"]'); if (u && !u.value) u.value = unit;
+    const c = emptyRow.querySelector('select[name="item_category"]'); if (c) c.value = cat;
+    emptyRow.querySelector('input[name="item_qty"]').focus();
+  } else {
+    addRow({ name, unit, cat });
+    setTimeout(() => {
+      const last = document.querySelector('#itemsBody tr:last-child input[name="item_qty"]');
+      if (last) last.focus();
+    }, 30);
+  }
+
+  // brief visual feedback
+  el.style.background = '#14532d';
+  setTimeout(() => el.style.background = '', 250);
+}
+
+function filterStock(q) {
+  const term = q.trim().toLowerCase();
+  document.querySelectorAll('#stockGrid .stock-pill').forEach(p => {
+    p.classList.toggle('hide', term && !p.dataset.name.includes(term));
+  });
 }
 
 function updateTotals() {
@@ -212,8 +312,8 @@ function updateType() {
   else if (t === 'refund')      { fx.textContent = '🔁 Stock -qty + Expense -$';   fx.style.color = '#4ade80'; }
 }
 
-// Init: 3 empty rows + select expense
-addRow(); addRow(); addRow();
+// Init: 1 empty row + select expense
+addRow();
 updateType();
 </script>
 </body>
