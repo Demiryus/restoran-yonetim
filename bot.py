@@ -13,9 +13,9 @@ Commands:
 import os
 from datetime import datetime, time
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
+    Application, CommandHandler, MessageHandler, CallbackQueryHandler,
     filters, ContextTypes,
 )
 
@@ -173,7 +173,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 total_amount    = ?,
                 tax_amount      = ?,
                 currency        = ?,
-                parse_status    = 'success',
+                parse_status    = 'pending_review',
                 parse_error     = NULL,
                 raw_ai_response = ?
             WHERE id = ?
@@ -188,7 +188,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ))
 
         items = apply_aliases(parsed.get("items") or [])
-        stok_satirlari = []
 
         for item in items:
             name    = item.get("item_name") or "?"
@@ -204,25 +203,6 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 VALUES (?,?,?,?,?,?,?)
             """, (receipt_id, name, cat, qty, unit, u_price, t_price))
 
-            if name and qty > 0:
-                if stock_subtracts:
-                    cur.execute("""
-                        UPDATE stock SET
-                            current_quantity = MAX(0, current_quantity - ?),
-                            last_updated     = datetime('now','localtime')
-                        WHERE item_name = ?
-                    """, (qty, name))
-                    stok_satirlari.append(f"  \u2796 {name}: -{qty:.1f} {unit}")
-                else:
-                    cur.execute("""
-                        INSERT INTO stock (item_name, category, current_quantity, unit, last_updated)
-                        VALUES (?,?,?,?, datetime('now','localtime'))
-                        ON CONFLICT(item_name) DO UPDATE SET
-                            current_quantity = current_quantity + ?,
-                            category         = COALESCE(excluded.category, category),
-                            last_updated     = datetime('now','localtime')
-                    """, (name, cat, qty, unit, qty))
-                    stok_satirlari.append(f"  \u2795 {name}: +{qty:.1f} {unit}")
 
         db.commit()
         db.close()
@@ -236,33 +216,38 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
             for i in items[:12]
         ) or "  (could not read items)"
 
-        stok_blok = "\n".join(stok_satirlari[:12]) if stok_satirlari else "  (no stock changes)"
         if iade:
-            mod_emoji = "\U0001F501"  # 🔁
-            stock_label = "Stock returned (refund)"
-            header = "*Refund saved!*"
+            type_label = "\U0001F501 Refund"
+            stock_hint = "Will deduct from stock + reduce expense"
         elif tuketim:
-            mod_emoji = "\U0001F4E4"  # 📤
-            stock_label = "Stock deducted"
-            header = "*Receipt saved!*"
+            type_label = "\U0001F4E4 Consumption"
+            stock_hint = "Will deduct from stock"
         else:
-            mod_emoji = "\U0001F4E5"  # 📥
-            stock_label = "Stock updated"
-            header = "*Receipt saved!*"
+            type_label = "\U0001F4E5 Purchase"
+            stock_hint = "Will add to stock + count as expense"
 
         tax_amt = parsed.get("tax_amount") or 0
         tax_line = f"Tax: *{tax_amt:.2f} {cur_sym}*\n" if tax_amt else ""
 
+        keyboard = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("\u2713 Approve", callback_data=f"approve:{receipt_id}"),
+                InlineKeyboardButton("\u2717 Reject",  callback_data=f"reject:{receipt_id}"),
+            ],
+            [InlineKeyboardButton("\u270F Edit on Web", url=f"{WEB_URL}/fis/{receipt_id}")],
+        ])
+
         await msg.edit_text(
-            f"{header}\n\n"
+            f"\u23F3 *Pending review* \u2014 {type_label}\n\n"
             f"Store: {parsed.get('store_name','?')}\n"
             f"Date: {parsed.get('receipt_date') or 'Unknown'}\n"
             f"Total: *{total:.2f} {cur_sym}*\n"
             f"{tax_line}\n"
             f"Items ({len(items)}):\n{item_lines}\n\n"
-            f"{mod_emoji} *{stock_label}:*\n{stok_blok}\n\n"
-            f"[Open Dashboard]({WEB_URL})",
+            f"_{stock_hint} on approval._\n"
+            f"Tap a button below or open the web to edit items.",
             parse_mode="Markdown",
+            reply_markup=keyboard,
         )
 
     except Exception as e:
@@ -427,6 +412,106 @@ async def _send_summary(chat_id: int, context):
         ),
         parse_mode="Markdown",
     )
+
+
+# ──────────────────────── Review queue ─────────────────────────────
+def _apply_stock_for_receipt(db, receipt_id: int):
+    """Apply stock effect for a receipt based on its type.
+    expense   → +qty
+    consumption / refund → -qty (clamped at 0)
+    """
+    row = db.execute("SELECT type FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if not row: return
+    rtype = row["type"] or "expense"
+    items = db.execute(
+        "SELECT item_name, category, quantity, unit FROM receipt_items WHERE receipt_id=?",
+        (receipt_id,)
+    ).fetchall()
+    for it in items:
+        name = it["item_name"]; qty = it["quantity"] or 0
+        if not name or qty <= 0: continue
+        cat = it["category"] or "other"; unit = it["unit"] or ""
+        if rtype in ("consumption", "refund"):
+            db.execute("""
+                INSERT INTO stock (item_name, current_quantity, last_updated)
+                VALUES (?, 0, datetime('now','localtime'))
+                ON CONFLICT(item_name) DO NOTHING
+            """, (name,))
+            db.execute("""
+                UPDATE stock SET
+                    current_quantity = MAX(0, current_quantity - ?),
+                    last_updated     = datetime('now','localtime')
+                WHERE item_name = ?
+            """, (qty, name))
+        else:
+            db.execute("""
+                INSERT INTO stock (item_name, category, current_quantity, unit, last_updated)
+                VALUES (?,?,?,?, datetime('now','localtime'))
+                ON CONFLICT(item_name) DO UPDATE SET
+                    current_quantity = current_quantity + ?,
+                    category         = COALESCE(excluded.category, category),
+                    last_updated     = datetime('now','localtime')
+            """, (name, cat, qty, unit, qty))
+
+
+async def cb_review(update: Update, context):
+    """Inline-button callback: approve/reject a pending_review receipt."""
+    q = update.callback_query
+    await q.answer()
+    if not _is_allowed(update):
+        await q.edit_message_text("Access denied.")
+        return
+
+    try:
+        action, rid_str = q.data.split(":", 1)
+        rid = int(rid_str)
+    except Exception:
+        await q.edit_message_text("Invalid action.")
+        return
+
+    db = get_db()
+    row = db.execute(
+        "SELECT parse_status, photo_path, store_name, total_amount, currency, type FROM receipts WHERE id=?",
+        (rid,)
+    ).fetchone()
+    if not row:
+        db.close()
+        await q.edit_message_text("Receipt not found (already deleted?).")
+        return
+    if row["parse_status"] != "pending_review":
+        db.close()
+        await q.edit_message_text(f"Receipt #{rid} is no longer pending (status: {row['parse_status']}).")
+        return
+
+    if action == "approve":
+        _apply_stock_for_receipt(db, rid)
+        db.execute("UPDATE receipts SET parse_status='success' WHERE id=?", (rid,))
+        db.commit(); db.close()
+        cur_sym = row["currency"] or "CAD"
+        rtype = row["type"] or "expense"
+        emoji = {"expense":"\U0001F4E5","consumption":"\U0001F4E4","refund":"\U0001F501"}.get(rtype, "")
+        await q.edit_message_text(
+            f"✓ *Approved* {emoji}\n\n"
+            f"Receipt #{rid} — {row['store_name'] or '?'}\n"
+            f"Total: *{row['total_amount']:.2f} {cur_sym}*\n"
+            f"Stock + financials updated.\n\n"
+            f"[Open dashboard]({WEB_URL})",
+            parse_mode="Markdown",
+        )
+    elif action == "reject":
+        if row["photo_path"]:
+            try:
+                from pathlib import Path as _P
+                _P(row["photo_path"]).unlink(missing_ok=True)
+            except Exception:
+                pass
+        db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (rid,))
+        db.execute("DELETE FROM receipts      WHERE id=?",         (rid,))
+        db.commit(); db.close()
+        await q.edit_message_text(f"✗ Rejected. Receipt #{rid} and photo deleted.")
+    else:
+        db.close()
+        await q.edit_message_text("Unknown action.")
 
 
 # ──────────────────────── Backup ───────────────────────────────────
@@ -690,6 +775,7 @@ def main():
     app.add_handler(CommandHandler("stockdel",     cmd_stok_sil))
     app.add_handler(CommandHandler("weeklyreport", cmd_weekly_report))
     app.add_handler(CommandHandler("backup",       cmd_backup))
+    app.add_handler(CallbackQueryHandler(cb_review, pattern=r"^(approve|reject):\d+$"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
 
     # Daily summary job

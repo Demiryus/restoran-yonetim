@@ -243,9 +243,13 @@ async def fis_detay(request: Request, receipt_id: int, _auth: None = Depends(req
         p = Path(fis["photo_path"])
         if p.exists():
             photo_url = f"/photos/{p.name}"
+    stock_items = fetch_all(
+        "SELECT item_name, current_quantity, unit, category FROM stock ORDER BY item_name"
+    )
     return templates.TemplateResponse("fis_detay.html", {
         "request": request, "fis": fis, "items": items, "photo_url": photo_url,
         "categories": get_categories(),
+        "stock_items": stock_items,
     })
 
 @app.get("/manuel-fis", response_class=HTMLResponse)
@@ -375,6 +379,86 @@ async def fis_set_type(receipt_id: int, new_type: str = Form(...), _auth: None =
     db.execute("UPDATE receipts SET type=? WHERE id=?", (new_type, receipt_id))
     db.commit(); db.close()
     return RedirectResponse(f"/fis/{receipt_id}?saved=1", status_code=303)
+
+
+@app.post("/fis/{receipt_id}/onayla")
+async def fis_onayla(
+    request: Request,
+    receipt_id: int,
+    receipt_type: str = Form(...),
+    store_name: str = Form(""),
+    receipt_date: str = Form(""),
+    total_amount: float = Form(0),
+    tax_amount: float = Form(0),
+    currency: str = Form("CAD"),
+    _auth: None = Depends(require_auth),
+):
+    """Approve a pending_review receipt: save user-edited items, then apply stock."""
+    if receipt_type not in ("expense", "consumption", "refund"):
+        raise HTTPException(status_code=400, detail="Invalid type")
+
+    form = await request.form()
+    names  = form.getlist("item_name")
+    qtys   = form.getlist("item_qty")
+    units  = form.getlist("item_unit")
+    prices = form.getlist("item_price")
+    cats   = form.getlist("item_category")
+
+    db = get_db()
+    row = db.execute("SELECT parse_status FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if not row:
+        db.close()
+        raise HTTPException(status_code=404, detail="Receipt not found")
+
+    # Update receipt header
+    db.execute("""
+        UPDATE receipts SET
+            store_name   = ?, receipt_date = ?, total_amount = ?,
+            tax_amount   = ?, currency     = ?, type         = ?,
+            parse_status = 'success'
+        WHERE id = ?
+    """, (store_name or "Unknown", receipt_date or None, total_amount,
+          tax_amount, currency, receipt_type, receipt_id))
+
+    # Replace items
+    db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (receipt_id,))
+    for i, n in enumerate(names):
+        n = (n or "").strip()
+        if not n: continue
+        qty   = float(qtys[i])   if i < len(qtys)   and qtys[i]   else 0
+        unit  = units[i]         if i < len(units)              else ""
+        price = float(prices[i]) if i < len(prices) and prices[i] else 0
+        cat   = cats[i]          if i < len(cats)   and cats[i]  else "other"
+        u_price = (price / qty) if qty else 0
+        db.execute("""
+            INSERT INTO receipt_items (receipt_id, item_name, category, quantity, unit, unit_price, total_price)
+            VALUES (?,?,?,?,?,?,?)
+        """, (receipt_id, n, cat, qty, unit, u_price, price))
+
+    # Apply stock effect using web_app helper
+    items_for_stock = db.execute(
+        "SELECT item_name, quantity FROM receipt_items WHERE receipt_id=?", (receipt_id,)
+    ).fetchall()
+    _apply_stock_effect(db, [dict(r) for r in items_for_stock], receipt_type, sign=+1)
+
+    db.commit(); db.close()
+    return RedirectResponse(f"/fis/{receipt_id}?saved=1", status_code=303)
+
+
+@app.post("/fis/{receipt_id}/reddet")
+async def fis_reddet(receipt_id: int, _auth: None = Depends(require_auth)):
+    """Reject a pending_review receipt — delete photo, items, and the receipt itself."""
+    db = get_db()
+    row = db.execute("SELECT photo_path FROM receipts WHERE id=?", (receipt_id,)).fetchone()
+    if not row:
+        db.close()
+        return RedirectResponse("/", status_code=303)
+    if row["photo_path"]:
+        Path(row["photo_path"]).unlink(missing_ok=True)
+    db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (receipt_id,))
+    db.execute("DELETE FROM receipts      WHERE id=?",         (receipt_id,))
+    db.commit(); db.close()
+    return RedirectResponse("/", status_code=303)
 
 
 @app.post("/fis/{receipt_id}/sil")
