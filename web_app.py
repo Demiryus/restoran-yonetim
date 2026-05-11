@@ -1329,6 +1329,33 @@ async def alias_sil(alias_id: int, _auth: None = Depends(require_auth)):
     return RedirectResponse("/categories", status_code=303)
 
 
+# ─────────────────────────── DB Backup Download ───────────────────
+
+@app.get("/backup/download")
+async def backup_download(_auth: None = Depends(require_auth)):
+    import sqlite3, shutil, tempfile
+    db_path = Path(os.getenv("DB_PATH", "restoran.db"))
+    if not db_path.exists():
+        raise HTTPException(status_code=404, detail="DB file not found")
+
+    ts = date.today().isoformat()
+    tmp = Path(tempfile.mktemp(suffix=".db"))
+    src = sqlite3.connect(str(db_path))
+    dst = sqlite3.connect(str(tmp))
+    with dst:
+        src.backup(dst)
+    dst.close(); src.close()
+
+    data = tmp.read_bytes()
+    tmp.unlink(missing_ok=True)
+
+    return StreamingResponse(
+        iter([data]),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f"attachment; filename=bodega_backup_{ts}.db"},
+    )
+
+
 # ─────────────────────────── Başlangıç ────────────────────────────
 
 @app.on_event("startup")
