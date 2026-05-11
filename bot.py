@@ -11,7 +11,9 @@ Commands:
   Photo                    - Process receipt
 """
 import os
+import shutil
 from datetime import datetime, time
+from pathlib import Path
 from dotenv import load_dotenv
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -87,11 +89,13 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "`/expense 3500 Monthly rent rent` — Add manual expense\n"
         "`/summary` — Today's income/expense summary\n"
         "`/weeklyreport` — 7-day comparison report\n"
+        "`/fisler [N]` — Son N fişi listele (default 10)\n"
         "`/stock` — View stock levels\n"
         "`/stockset chicken 5 kg` — Set stock quantity\n"
         "`/stockuse chicken 2` — Deduct from stock\n"
         "`/stockdel chicken` — Delete stock item\n"
         "`/backup` — Get a backup of the database now\n"
+        "📎 `.db` dosyası gönder — DB'yi geri yükle\n"
         f"\nDashboard: {WEB_URL}",
         parse_mode="Markdown",
     )
@@ -655,6 +659,92 @@ async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+# ──────────────────────────── /fisler ─────────────────────────────
+
+async def cmd_fisler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Son N fişi listele. Kullanım: /fisler [N=10]"""
+    if not _is_allowed(update): await _deny(update); return
+
+    n = 10
+    if context.args:
+        try:
+            n = max(1, min(int(context.args[0]), 30))
+        except ValueError:
+            pass
+
+    db = get_db()
+    rows = db.execute("""
+        SELECT id, store_name, receipt_date, total_amount, currency, created_at,
+               (SELECT COUNT(*) FROM receipt_items WHERE receipt_id=receipts.id) AS item_count
+        FROM receipts
+        WHERE parse_status = 'success'
+        ORDER BY created_at DESC
+        LIMIT ?
+    """, (n,)).fetchall()
+    db.close()
+
+    if not rows:
+        await update.message.reply_text("Henüz kaydedilmiş fiş yok.")
+        return
+
+    lines = []
+    for r in rows:
+        tarih = (r["receipt_date"] or r["created_at"][:10])
+        lines.append(
+            f"*#{r['id']}* {r['store_name'] or '?'}\n"
+            f"   {tarih} — *{r['total_amount']:.2f} {r['currency']}* ({r['item_count']} ürün)"
+        )
+
+    await update.message.reply_text(
+        f"📋 *Son {len(rows)} Fiş*\n\n" + "\n\n".join(lines) +
+        f"\n\n[Tüm fişler]({WEB_URL}/receipts)",
+        parse_mode="Markdown",
+    )
+
+
+# ──────────────────────────── DB Restore ──────────────────────────
+
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Gönderilen .db dosyasını mevcut veritabanının üzerine yükle."""
+    if not _is_allowed(update): await _deny(update); return
+
+    doc = update.message.document
+    if not doc or not (doc.file_name or "").endswith(".db"):
+        return
+
+    msg = await update.message.reply_text(
+        f"📥 `{doc.file_name}` alındı, geri yükleniyor...", parse_mode="Markdown"
+    )
+
+    try:
+        tg_file = await context.bot.get_file(doc.file_id)
+        tmp_path = Path("/tmp/restore_upload.db")
+        await tg_file.download_to_drive(str(tmp_path))
+
+        import sqlite3 as _sqlite3
+        conn = _sqlite3.connect(str(tmp_path))
+        conn.execute("PRAGMA integrity_check")
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        conn.close()
+
+        db_path = Path(DB_PATH)
+        if db_path.exists():
+            shutil.copy2(db_path, str(db_path) + ".pre_restore")
+
+        shutil.copy2(tmp_path, db_path)
+        tmp_path.unlink(missing_ok=True)
+
+        table_names = [t[0] for t in tables]
+        await msg.edit_text(
+            f"✅ *Veritabanı geri yüklendi!*\n\n"
+            f"Tablolar: {', '.join(table_names)}\n"
+            f"Eski DB: `{db_path}.pre_restore` olarak saklandı.",
+            parse_mode="Markdown",
+        )
+    except Exception as e:
+        await msg.edit_text(f"❌ Geri yükleme başarısız: `{str(e)[:300]}`", parse_mode="Markdown")
+
+
 # ──────────────────────────── /stock ───────────────────────────────
 async def cmd_stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not _is_allowed(update): await _deny(update); return
@@ -775,8 +865,10 @@ def main():
     app.add_handler(CommandHandler("stockdel",     cmd_stok_sil))
     app.add_handler(CommandHandler("weeklyreport", cmd_weekly_report))
     app.add_handler(CommandHandler("backup",       cmd_backup))
+    app.add_handler(CommandHandler("fisler",       cmd_fisler))
     app.add_handler(CallbackQueryHandler(cb_review, pattern=r"^(approve|reject):\d+$"))
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.Document.FileExtension("db"), handle_document))
 
     # Daily summary job
     if NOTIFY_USER_IDS:
