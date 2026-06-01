@@ -349,6 +349,8 @@ def _apply_stock_effect(db, items, mode: str, sign: int):
                     last_updated     = datetime('now','localtime')
                 WHERE item_name = ?
             """, (delta, name))
+            # Stok sıfırlandıysa envanterden tamamen kaldır
+            db.execute("DELETE FROM stock WHERE item_name=? AND current_quantity <= 0", (name,))
 
 
 @app.post("/fis/{receipt_id}/set-type")
@@ -497,13 +499,14 @@ async def fis_sil(receipt_id: int, _auth: None = Depends(require_auth)):
                     last_updated     = datetime('now','localtime')
             """, (name, qty, qty))
         else:
-            # Alım fişi silindi → stoğu düş (0'ın altına inme)
+            # Alım fişi silindi → stoğu düş, sıfırlanınca envanterden tamamen kaldır
             db.execute("""
                 UPDATE stock SET
                     current_quantity = MAX(0, current_quantity - ?),
                     last_updated = datetime('now','localtime')
                 WHERE item_name = ?
             """, (qty, name))
+            db.execute("DELETE FROM stock WHERE item_name=? AND current_quantity <= 0", (name,))
 
     # Hard delete: items first (defensive — CASCADE would do it but be explicit), then receipt
     db.execute("DELETE FROM receipt_items WHERE receipt_id=?", (receipt_id,))

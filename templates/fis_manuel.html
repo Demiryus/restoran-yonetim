@@ -299,7 +299,24 @@ function updateTotals() {
     sum += parseFloat(inp.value) || 0;
   });
   document.getElementById('itemsTotal').textContent = '$' + sum.toFixed(2);
+
+  // Otomatik total = items subtotal + tax
+  const taxVal = parseFloat(document.getElementById('taxInput').value) || 0;
+  const auto   = sum + taxVal;
+  const totalInp = document.getElementById('totalInput');
+  if (!totalInp._manuallyEdited) {
+    totalInp.value = auto.toFixed(2);
+  }
 }
+
+// Kullanıcı total'ı manuel değiştirirse otomatiği kapat; tax değişince tekrar hesapla
+document.getElementById('totalInput').addEventListener('input', function() {
+  this._manuallyEdited = true;
+});
+document.getElementById('taxInput').addEventListener('input', function() {
+  document.getElementById('totalInput')._manuallyEdited = false;
+  updateTotals();
+});
 
 function updateType() {
   const t = document.querySelector('input[name="receipt_type"]:checked').value;

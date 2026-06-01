@@ -191,11 +191,11 @@
         </div>
         <div>
           <label>Total (incl. tax)</label>
-          <input type="number" name="total_amount" step="0.01" min="0" value="{{ '%.2f'|format(fis.total_amount or 0) }}">
+          <input type="number" name="total_amount" id="editTotalInput" step="0.01" min="0" value="{{ '%.2f'|format(fis.total_amount or 0) }}">
         </div>
         <div>
           <label>Tax</label>
-          <input type="number" name="tax_amount" step="0.01" min="0" value="{{ '%.2f'|format(fis.tax_amount or 0) }}">
+          <input type="number" name="tax_amount" id="editTaxInput" step="0.01" min="0" value="{{ '%.2f'|format(fis.tax_amount or 0) }}">
         </div>
       </div>
 
@@ -602,6 +602,27 @@ function autoFillRow(input) {
   const u = tr.querySelector('input[name="item_unit"]'); if (u && !u.value) u.value = data.unit;
   const c = tr.querySelector('select[name="item_category"]'); if (c && data.cat) c.value = data.cat;
 }
+
+// Otomatik total = items subtotal + tax (edit formu için)
+(function() {
+  const totalInp = document.getElementById('editTotalInput');
+  const taxInp   = document.getElementById('editTaxInput');
+  if (!totalInp || !taxInp) return;
+
+  function recalcTotal() {
+    if (totalInp._manuallyEdited) return;
+    let sum = 0;
+    document.querySelectorAll('input[name="item_price"]').forEach(i => { sum += parseFloat(i.value) || 0; });
+    const tax = parseFloat(taxInp.value) || 0;
+    totalInp.value = (sum + tax).toFixed(2);
+  }
+
+  totalInp.addEventListener('input', () => { totalInp._manuallyEdited = true; });
+  taxInp.addEventListener('input', () => { totalInp._manuallyEdited = false; recalcTotal(); });
+  document.addEventListener('input', e => {
+    if (e.target.name === 'item_price') { totalInp._manuallyEdited = false; recalcTotal(); }
+  });
+})();
 
 function addFromStock(el) {
   const name = el.dataset.iname, unit = el.dataset.unit, cat = el.dataset.cat;

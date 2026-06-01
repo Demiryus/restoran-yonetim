@@ -447,6 +447,8 @@ def _apply_stock_for_receipt(db, receipt_id: int):
                     last_updated     = datetime('now','localtime')
                 WHERE item_name = ?
             """, (qty, name))
+            # Stok sıfırlandıysa envanterden tamamen kaldır
+            db.execute("DELETE FROM stock WHERE item_name=? AND current_quantity <= 0", (name,))
         else:
             db.execute("""
                 INSERT INTO stock (item_name, category, current_quantity, unit, last_updated)
