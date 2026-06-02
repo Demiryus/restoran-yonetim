@@ -1338,74 +1338,62 @@ async def alias_sil(alias_id: int, _auth: None = Depends(require_auth)):
 async def changelog_page(request: Request, _auth: None = Depends(require_auth)):
     import subprocess
     from collections import OrderedDict
-    from datetime import date as _date
+    from datetime import datetime as _dt
 
     repo_dir = Path(__file__).parent
 
+    def git(*args):
+        r = subprocess.run(["git"] + list(args), capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", cwd=repo_dir)
+        return r.stdout
+
     # ── Commit log ──
-    result = subprocess.run(
-        ["git", "log", "--pretty=format:%H|%ad|%s", "--date=short"],
-        capture_output=True, text=True, cwd=repo_dir
-    )
     entries = []
-    for line in result.stdout.strip().splitlines():
+    for line in git("log", "--pretty=format:%H|%ad|%s", "--date=short").strip().splitlines():
         parts = line.split("|", 2)
         if len(parts) < 3:
             continue
         sha, date_str, subject = parts
         subject = subject.strip()
-        for prefix, kind in [("feat:","feat"),("fix:","fix"),("Fix:","fix"),
-                              ("chore:","chore"),("docs:","docs"),("refactor:","chore")]:
+        kind, msg = "other", subject
+        for prefix, k in [("feat:","feat"),("fix:","fix"),("Fix:","fix"),
+                           ("chore:","chore"),("docs:","docs"),("refactor:","chore")]:
             if subject.lower().startswith(prefix.lower()):
-                msg = subject[len(prefix):].strip()
+                kind, msg = k, subject[len(prefix):].strip()
                 break
-        else:
-            kind, msg = "other", subject
         entries.append({"sha": sha[:7], "date": date_str, "kind": kind, "msg": msg})
 
     grouped = OrderedDict()
     for e in entries:
         grouped.setdefault(e["date"], []).append(e)
 
-    # ── Git stats ──
+    # ── Basic counts ──
     total_commits = len(entries)
     active_days   = len(grouped)
     dates_sorted  = sorted(grouped.keys())
     first_date    = dates_sorted[0]  if dates_sorted else ""
     last_date     = dates_sorted[-1] if dates_sorted else ""
+    feat_count    = sum(1 for e in entries if e["kind"] == "feat")
+    fix_count     = sum(1 for e in entries if e["kind"] == "fix")
 
-    # lines added / deleted across all commits
-    numstat = subprocess.run(
-        ["git", "log", "--pretty=format:", "--numstat"],
-        capture_output=True, text=True, cwd=repo_dir
-    )
+    # ── Numstat (added/deleted + file changes) ──
     total_added = total_deleted = 0
-    for ln in numstat.stdout.splitlines():
-        parts = ln.split("\t")
-        if len(parts) == 3 and parts[0].isdigit():
-            total_added   += int(parts[0])
-            total_deleted += int(parts[1])
+    file_changes: dict = {}
+    for ln in git("log", "--pretty=format:", "--numstat").splitlines():
+        p = ln.split("\t")
+        if len(p) == 3 and p[0].isdigit():
+            total_added   += int(p[0])
+            total_deleted += int(p[1])
+            fname = p[2]
+            file_changes[fname] = file_changes.get(fname, 0) + int(p[0]) + int(p[1])
+    top_files = sorted(file_changes.items(), key=lambda x: x[1], reverse=True)[:3]
 
-    # current lines of code
-    py_lines   = int(subprocess.run("find . -name '*.py'  -not -path './.git/*' | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}'",
-                     shell=True, capture_output=True, text=True, cwd=repo_dir).stdout.strip() or 0)
-    html_lines = int(subprocess.run("find . -name '*.html' -not -path './.git/*' | xargs wc -l 2>/dev/null | tail -1 | awk '{print $1}'",
-                     shell=True, capture_output=True, text=True, cwd=repo_dir).stdout.strip() or 0)
-    total_loc  = py_lines + html_lines
-
-    # biggest release day
-    day_changes = {}
-    for ln in numstat.stdout.splitlines():
-        pass  # already parsed above
-
-    day_result = subprocess.run(
-        ["git", "log", "--pretty=format:%ad", "--date=short", "--numstat"],
-        capture_output=True, text=True, cwd=repo_dir
-    )
-    day_changes = {}
+    # ── Biggest release day ──
+    day_changes: dict = {}
     cur_day = None
-    for ln in day_result.stdout.splitlines():
-        if ln and not ln[0].isdigit() and len(ln) == 10:
+    for ln in git("log", "--pretty=format:%ad", "--date=short", "--numstat").splitlines():
+        ln = ln.strip()
+        if len(ln) == 10 and ln[4] == "-":
             cur_day = ln
         elif cur_day:
             p = ln.split("\t")
@@ -1414,34 +1402,30 @@ async def changelog_page(request: Request, _auth: None = Depends(require_auth)):
     biggest_day   = max(day_changes, key=day_changes.get) if day_changes else ""
     biggest_lines = day_changes.get(biggest_day, 0)
 
-    # top 3 most touched files
-    touch_result = subprocess.run(
-        ["git", "log", "--pretty=format:", "--numstat"],
-        capture_output=True, text=True, cwd=repo_dir
-    )
-    file_changes = {}
-    for ln in touch_result.stdout.splitlines():
-        p = ln.split("\t")
-        if len(p) == 3 and p[0].isdigit():
-            file_changes[p[2]] = file_changes.get(p[2], 0) + int(p[0]) + int(p[1])
-    top_files = sorted(file_changes.items(), key=lambda x: x[1], reverse=True)[:3]
+    # ── Current lines of code (pure Python, no shell tools) ──
+    py_lines = html_lines = 0
+    for ext, counter in [("*.py", "py"), ("*.html", "html")]:
+        for f in repo_dir.rglob(ext):
+            if ".git" in f.parts:
+                continue
+            try:
+                py_lines   += sum(1 for _ in f.open("r", encoding="utf-8", errors="ignore")) if counter == "py"   else 0
+                html_lines += sum(1 for _ in f.open("r", encoding="utf-8", errors="ignore")) if counter == "html" else 0
+            except Exception:
+                pass
+    total_loc = py_lines + html_lines
 
-    # project age
+    # ── Project age ──
     if first_date and last_date:
-        from datetime import datetime
-        d1 = datetime.strptime(first_date, "%Y-%m-%d").date()
-        d2 = datetime.strptime(last_date,  "%Y-%m-%d").date()
-        project_age_days = (d2 - d1).days or 1
+        d1 = _dt.strptime(first_date, "%Y-%m-%d").date()
+        d2 = _dt.strptime(last_date,  "%Y-%m-%d").date()
+        project_age_days = max((d2 - d1).days, 1)
     else:
         project_age_days = 1
-
     avg_days_per_commit = round(project_age_days / max(total_commits, 1), 1)
+    est_dev_hours       = round(total_commits * 0.75, 1)
 
-    # feat / fix counts
-    feat_count = sum(1 for e in entries if e["kind"] == "feat")
-    fix_count  = sum(1 for e in entries if e["kind"] == "fix")
-
-    # estimated AI tokens (llm_logs table if exists)
+    # ── AI tokens from llm_logs ──
     try:
         db = get_db()
         ai_tokens = db.execute("SELECT COALESCE(SUM(prompt_tokens+output_tokens),0) FROM llm_logs").fetchone()[0]
@@ -1450,31 +1434,28 @@ async def changelog_page(request: Request, _auth: None = Depends(require_auth)):
     except Exception:
         ai_tokens, ai_calls = 0, 0
 
-    # estimated dev hours (assume 45 min avg per commit)
-    est_dev_hours = round(total_commits * 0.75, 1)
-
     return templates.TemplateResponse("changelog.html", {
-        "request":           request,
-        "grouped":           grouped,
-        "total_commits":     total_commits,
-        "active_days":       active_days,
-        "first_date":        first_date,
-        "last_date":         last_date,
-        "project_age_days":  project_age_days,
-        "feat_count":        feat_count,
-        "fix_count":         fix_count,
-        "total_added":       total_added,
-        "total_deleted":     total_deleted,
-        "total_loc":         total_loc,
-        "py_lines":          py_lines,
-        "html_lines":        html_lines,
-        "biggest_day":       biggest_day,
-        "biggest_lines":     biggest_lines,
-        "top_files":         top_files,
+        "request":             request,
+        "grouped":             grouped,
+        "total_commits":       total_commits,
+        "active_days":         active_days,
+        "first_date":          first_date,
+        "last_date":           last_date,
+        "project_age_days":    project_age_days,
+        "feat_count":          feat_count,
+        "fix_count":           fix_count,
+        "total_added":         total_added,
+        "total_deleted":       total_deleted,
+        "total_loc":           total_loc,
+        "py_lines":            py_lines,
+        "html_lines":          html_lines,
+        "biggest_day":         biggest_day,
+        "biggest_lines":       biggest_lines,
+        "top_files":           top_files,
         "avg_days_per_commit": avg_days_per_commit,
-        "ai_tokens":         ai_tokens,
-        "ai_calls":          ai_calls,
-        "est_dev_hours":     est_dev_hours,
+        "ai_tokens":           ai_tokens,
+        "ai_calls":            ai_calls,
+        "est_dev_hours":       est_dev_hours,
     })
 
 
