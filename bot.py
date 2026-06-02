@@ -348,7 +348,7 @@ async def _send_summary(chat_id: int, context):
                  WHEN type='consumption' THEN 0
                  ELSE total_amount END
         ), 0)
-        FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'
+        FROM receipts WHERE date(COALESCE(receipt_date, created_at))=date('now','localtime') AND parse_status='success'
     """).fetchone()[0]
     tax   = db.execute("""
         SELECT COALESCE(SUM(
@@ -356,12 +356,12 @@ async def _send_summary(chat_id: int, context):
                  WHEN type='consumption' THEN 0
                  ELSE tax_amount END
         ), 0)
-        FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'
+        FROM receipts WHERE date(COALESCE(receipt_date, created_at))=date('now','localtime') AND parse_status='success'
     """).fetchone()[0]
     gelir = db.execute("SELECT COALESCE(SUM(amount),0)       FROM income   WHERE date(income_date)=date('now','localtime')").fetchone()[0]
-    n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success' AND type<>'refund'").fetchone()[0]
-    n_iade= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success' AND type='refund'").fetchone()[0]
-    n_fail= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='failed'").fetchone()[0]
+    n_fis = db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(COALESCE(receipt_date, created_at))=date('now','localtime') AND parse_status='success' AND type<>'refund'").fetchone()[0]
+    n_iade= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(COALESCE(receipt_date, created_at))=date('now','localtime') AND parse_status='success' AND type='refund'").fetchone()[0]
+    n_fail= db.execute("SELECT COUNT(*)                      FROM receipts WHERE date(COALESCE(receipt_date, created_at))=date('now','localtime') AND parse_status='failed'").fetchone()[0]
     low_stock = db.execute("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity").fetchone()[0]
 
     # Budget alerts — categories at or over 80%
@@ -376,7 +376,7 @@ async def _send_summary(chat_id: int, context):
                    ),0)
                    FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id
                    WHERE ri.category=b.category
-                     AND strftime('%Y-%m',r.created_at)=strftime('%Y-%m','now','localtime')
+                     AND strftime('%Y-%m',COALESCE(r.receipt_date, r.created_at))=strftime('%Y-%m','now','localtime')
                      AND r.parse_status='success'
                  )
                  ELSE (
@@ -605,13 +605,13 @@ async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     this_w = db.execute(f"""
         SELECT COALESCE(SUM({signed_total}),0) FROM receipts
-        WHERE date(created_at) >= date('now','localtime','-7 days')
+        WHERE date(COALESCE(receipt_date, created_at)) >= date('now','localtime','-7 days')
           AND parse_status='success'
     """).fetchone()[0]
     last_w = db.execute(f"""
         SELECT COALESCE(SUM({signed_total}),0) FROM receipts
-        WHERE date(created_at) >= date('now','localtime','-14 days')
-          AND date(created_at) <  date('now','localtime','-7 days')
+        WHERE date(COALESCE(receipt_date, created_at)) >= date('now','localtime','-14 days')
+          AND date(COALESCE(receipt_date, created_at)) <  date('now','localtime','-7 days')
           AND parse_status='success'
     """).fetchone()[0]
 
@@ -624,7 +624,7 @@ async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ),2) AS total
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id=r.id
-        WHERE date(r.created_at) >= date('now','localtime','-7 days')
+        WHERE date(COALESCE(r.receipt_date, r.created_at)) >= date('now','localtime','-7 days')
           AND r.parse_status='success' AND ri.category IS NOT NULL
         GROUP BY ri.category ORDER BY total DESC LIMIT 8
     """).fetchall()
@@ -633,7 +633,7 @@ async def cmd_weekly_report(update: Update, context: ContextTypes.DEFAULT_TYPE):
     top_store = db.execute(f"""
         SELECT store_name, ROUND(SUM({signed_total}),2) AS total
         FROM receipts
-        WHERE date(created_at) >= date('now','localtime','-7 days')
+        WHERE date(COALESCE(receipt_date, created_at)) >= date('now','localtime','-7 days')
           AND parse_status='success' AND store_name IS NOT NULL
         GROUP BY store_name ORDER BY total DESC LIMIT 1
     """).fetchone()

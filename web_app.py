@@ -80,15 +80,15 @@ SIGNED_ITEM_PRICE = """CASE WHEN r.type='refund' THEN -ri.total_price
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, period: str = "today", _auth: None = Depends(require_auth)):
     if period == "today":
-        date_filter_r = "date(r.created_at) = date('now','localtime')"
+        date_filter_r = "date(COALESCE(r.receipt_date, r.created_at)) = date('now','localtime')"
         date_filter_i = "date(i.income_date) = date('now','localtime')"
         label = "Bugün"
     elif period == "week":
-        date_filter_r = "date(r.created_at) >= date('now','localtime','-7 days')"
+        date_filter_r = "date(COALESCE(r.receipt_date, r.created_at)) >= date('now','localtime','-7 days')"
         date_filter_i = "date(i.income_date) >= date('now','localtime','-7 days')"
         label = "Son 7 Gün"
     elif period == "month":
-        date_filter_r = "strftime('%Y-%m',r.created_at) = strftime('%Y-%m','now','localtime')"
+        date_filter_r = "strftime('%Y-%m',COALESCE(r.receipt_date, r.created_at)) = strftime('%Y-%m','now','localtime')"
         date_filter_i = "strftime('%Y-%m',i.income_date) = strftime('%Y-%m','now','localtime')"
         label = "Bu Ay"
     else:
@@ -151,8 +151,8 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
     _trend_days = [(date.today() - timedelta(days=i)).isoformat() for i in range(6, -1, -1)]
     _trend_signed = SIGNED_TOTAL.format(a="")
     _gider_rows = {r["d"]: r["v"] for r in fetch_all(
-        f"SELECT date(created_at) as d, COALESCE(SUM({_trend_signed}),0) as v FROM receipts "
-        "WHERE date(created_at) >= ? AND parse_status='success' GROUP BY date(created_at)", (_trend_days[0],)
+        f"SELECT date(COALESCE(receipt_date, created_at)) as d, COALESCE(SUM({_trend_signed}),0) as v FROM receipts "
+        "WHERE date(COALESCE(receipt_date, created_at)) >= ? AND parse_status='success' GROUP BY date(COALESCE(receipt_date, created_at))", (_trend_days[0],)
     )}
     _gelir_rows = {r["d"]: r["v"] for r in fetch_all(
         "SELECT date(income_date) as d, COALESCE(SUM(amount),0) as v FROM income "
@@ -196,7 +196,7 @@ async def dashboard(request: Request, period: str = "today", _auth: None = Depen
             spent = scalar(f"""
                 SELECT COALESCE(SUM({SIGNED_ITEM_PRICE}),0)
                 FROM receipt_items ri JOIN receipts r ON ri.receipt_id=r.id
-                WHERE ri.category=? AND strftime('%Y-%m',r.created_at)=strftime('%Y-%m','now','localtime')
+                WHERE ri.category=? AND strftime('%Y-%m',COALESCE(r.receipt_date, r.created_at))=strftime('%Y-%m','now','localtime')
                   AND r.parse_status='success'
             """, (b["category"],))
         else:
@@ -768,7 +768,7 @@ async def api_summary(_auth: None = Depends(require_auth)):
     signed = SIGNED_TOTAL.format(a="")
     return {
         "bugun_gelir": scalar("SELECT COALESCE(SUM(amount),0) FROM income WHERE date(income_date)=date('now','localtime')"),
-        "bugun_gider": scalar(f"SELECT COALESCE(SUM({signed}),0) FROM receipts WHERE date(created_at)=date('now','localtime') AND parse_status='success'"),
+        "bugun_gider": scalar(f"SELECT COALESCE(SUM({signed}),0) FROM receipts WHERE date(COALESCE(receipt_date, created_at))=date('now','localtime') AND parse_status='success'"),
         "toplam_stok": scalar("SELECT COUNT(*) FROM stock"),
         "dusuk_stok":  scalar("SELECT COUNT(*) FROM stock WHERE min_quantity>0 AND current_quantity<=min_quantity"),
     }
@@ -862,12 +862,12 @@ async def tax_summary(request: Request, year: int = None, _auth: None = Depends(
     signed_tax_expr   = SIGNED_TAX.format(a="")
     signed_total_expr = SIGNED_TOTAL.format(a="")
     receipt_tax = fetch_all(f"""
-        SELECT strftime('%Y-%m', created_at) AS month,
+        SELECT strftime('%Y-%m', COALESCE(receipt_date, created_at)) AS month,
                ROUND(SUM({signed_tax_expr}),2)   AS tax,
                ROUND(SUM({signed_total_expr}),2) AS total,
                COUNT(*) AS n
         FROM receipts
-        WHERE strftime('%Y', created_at) = ? AND parse_status='success'
+        WHERE strftime('%Y', COALESCE(receipt_date, created_at)) = ? AND parse_status='success'
           AND type<>'consumption' AND tax_amount <> 0
         GROUP BY month ORDER BY month
     """, (str(year),))
@@ -901,7 +901,7 @@ async def tax_summary(request: Request, year: int = None, _auth: None = Depends(
 
     # Available years
     years = fetch_all("""
-        SELECT DISTINCT strftime('%Y', created_at) AS yr FROM receipts
+        SELECT DISTINCT strftime('%Y', COALESCE(receipt_date, created_at)) AS yr FROM receipts
         WHERE parse_status='success' AND tax_amount <> 0 AND type<>'consumption'
         UNION
         SELECT DISTINCT strftime('%Y', expense_date) FROM manual_expenses WHERE tax_amount > 0
@@ -982,11 +982,11 @@ async def receipts_page(
 async def export_receipts(period: str = "all", _auth: None = Depends(require_auth)):
     """Download all receipts as CSV."""
     if period == "today":
-        where = "WHERE date(r.created_at) = date('now','localtime')"
+        where = "WHERE date(COALESCE(r.receipt_date, r.created_at)) = date('now','localtime')"
     elif period == "week":
-        where = "WHERE date(r.created_at) >= date('now','localtime','-7 days')"
+        where = "WHERE date(COALESCE(r.receipt_date, r.created_at)) >= date('now','localtime','-7 days')"
     elif period == "month":
-        where = "WHERE strftime('%Y-%m',r.created_at) = strftime('%Y-%m','now','localtime')"
+        where = "WHERE strftime('%Y-%m',COALESCE(r.receipt_date, r.created_at)) = strftime('%Y-%m','now','localtime')"
     else:
         where = ""
 
@@ -1176,7 +1176,7 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
         SELECT ri.category, ROUND(SUM({SIGNED_ITEM_PRICE}), 2) AS total
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id = r.id
-        WHERE date(r.created_at) >= date('now','localtime','-7 days')
+        WHERE date(COALESCE(r.receipt_date, r.created_at)) >= date('now','localtime','-7 days')
           AND r.parse_status = 'success'
           AND ri.category IS NOT NULL
         GROUP BY ri.category ORDER BY total DESC
@@ -1185,8 +1185,8 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
         SELECT ri.category, ROUND(SUM({SIGNED_ITEM_PRICE}), 2) AS total
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id = r.id
-        WHERE date(r.created_at) >= date('now','localtime','-14 days')
-          AND date(r.created_at) <  date('now','localtime','-7 days')
+        WHERE date(COALESCE(r.receipt_date, r.created_at)) >= date('now','localtime','-14 days')
+          AND date(COALESCE(r.receipt_date, r.created_at)) <  date('now','localtime','-7 days')
           AND r.parse_status = 'success'
           AND ri.category IS NOT NULL
         GROUP BY ri.category ORDER BY total DESC
@@ -1211,7 +1211,7 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
     _wr_signed = SIGNED_TOTAL.format(a="")
     for i in range(13, -1, -1):
         d = (date.today() - td(days=i)).isoformat()
-        g = scalar(f"SELECT COALESCE(SUM({_wr_signed}),0) FROM receipts WHERE date(created_at)=? AND parse_status='success'", (d,))
+        g = scalar(f"SELECT COALESCE(SUM({_wr_signed}),0) FROM receipts WHERE date(COALESCE(receipt_date, created_at))=? AND parse_status='success'", (d,))
         daily.append({"date": d[-5:], "total": g, "week": "last" if i >= 7 else "this"})
 
     # Top items this week (signed by receipt type)
@@ -1223,7 +1223,7 @@ async def weekly_report_page(request: Request, _auth: None = Depends(require_aut
                ROUND(SUM({SIGNED_ITEM_PRICE}), 2) AS total_spent
         FROM receipt_items ri
         JOIN receipts r ON ri.receipt_id = r.id
-        WHERE date(r.created_at) >= date('now','localtime','-7 days')
+        WHERE date(COALESCE(r.receipt_date, r.created_at)) >= date('now','localtime','-7 days')
           AND r.parse_status = 'success'
         GROUP BY ri.item_name
         ORDER BY total_spent DESC LIMIT 15
