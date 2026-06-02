@@ -1332,6 +1332,57 @@ async def alias_sil(alias_id: int, _auth: None = Depends(require_auth)):
     return RedirectResponse("/categories", status_code=303)
 
 
+# ─────────────────────────── Changelog ───────────────────────────
+
+@app.get("/changelog", response_class=HTMLResponse)
+async def changelog_page(request: Request, _auth: None = Depends(require_auth)):
+    import subprocess
+    result = subprocess.run(
+        ["git", "log", "--pretty=format:%H|%ad|%s|%an", "--date=short", "-40"],
+        capture_output=True, text=True, cwd=Path(__file__).parent
+    )
+    entries = []
+    for line in result.stdout.strip().splitlines():
+        parts = line.split("|", 3)
+        if len(parts) < 4:
+            continue
+        sha, date_str, subject, author = parts
+        # Determine type and clean subject
+        if subject.startswith("feat:"):
+            kind = "feat"
+            msg = subject[5:].strip()
+        elif subject.startswith("fix:"):
+            kind = "fix"
+            msg = subject[4:].strip()
+        elif subject.startswith("Fix:"):
+            kind = "fix"
+            msg = subject[4:].strip()
+        elif subject.startswith("chore:"):
+            kind = "chore"
+            msg = subject[6:].strip()
+        elif subject.startswith("docs:"):
+            kind = "docs"
+            msg = subject[5:].strip()
+        else:
+            kind = "other"
+            msg = subject.strip()
+        entries.append({
+            "sha": sha[:7],
+            "date": date_str,
+            "kind": kind,
+            "msg": msg,
+        })
+    # Group by date
+    from collections import OrderedDict
+    grouped = OrderedDict()
+    for e in entries:
+        grouped.setdefault(e["date"], []).append(e)
+    return templates.TemplateResponse("changelog.html", {
+        "request": request,
+        "grouped": grouped,
+    })
+
+
 # ─────────────────────────── DB Backup Download ───────────────────
 
 @app.get("/backup/download")

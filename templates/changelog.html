@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Changelog — Bodega</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+  :root{
+    --green:#22c55e;--red:#ef4444;--blue:#3b82f6;
+    --yellow:#f59e0b;--purple:#a855f7;--card:#1a1d2e;--border:#2a2d3e;
+  }
+
+  /* HEADER */
+  header{background:#1a1d2e;border-bottom:1px solid var(--border);
+    padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
+  .header-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .back-btn{font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;
+    border:1px solid #6366f1;border-radius:6px;transition:.15s}
+  .back-btn:hover{background:#6366f1;color:#fff}
+
+  /* HERO */
+  .hero{max-width:760px;margin:48px auto 0;padding:0 24px;text-align:center}
+  .hero-badge{display:inline-flex;align-items:center;gap:6px;
+    background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);
+    color:#818cf8;font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    padding:4px 12px;border-radius:20px;margin-bottom:20px}
+  .hero h1{font-size:2.2rem;font-weight:800;color:#fff;line-height:1.15;margin-bottom:12px}
+  .hero h1 span{background:linear-gradient(135deg,#6366f1,#a855f7);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+  .hero p{color:#666;font-size:.95rem;line-height:1.6}
+
+  /* TIMELINE */
+  .timeline{max-width:760px;margin:48px auto 80px;padding:0 24px;position:relative}
+  .timeline::before{content:'';position:absolute;left:calc(24px + 15px);top:0;bottom:0;
+    width:2px;background:linear-gradient(to bottom,#6366f1,transparent);opacity:.3}
+
+  /* DATE GROUP */
+  .date-group{margin-bottom:40px;position:relative}
+  .date-label{display:flex;align-items:center;gap:12px;margin-bottom:20px;position:relative}
+  .date-dot{width:32px;height:32px;border-radius:50%;background:#1a1d2e;
+    border:2px solid #6366f1;display:flex;align-items:center;justify-content:center;
+    font-size:.65rem;color:#6366f1;font-weight:700;flex-shrink:0;position:relative;z-index:2}
+  .date-text{font-size:.8rem;font-weight:600;color:#888;letter-spacing:.06em;text-transform:uppercase}
+
+  /* ENTRY */
+  .entries{padding-left:44px;display:flex;flex-direction:column;gap:10px}
+  .entry{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:16px 18px;display:flex;align-items:flex-start;gap:14px;
+    transition:transform .15s,border-color .15s;position:relative;overflow:hidden}
+  .entry::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
+  .entry.feat::before{background:var(--green)}
+  .entry.fix::before{background:var(--yellow)}
+  .entry.chore::before{background:#475569}
+  .entry.docs::before{background:var(--blue)}
+  .entry.other::before{background:#475569}
+  .entry:hover{transform:translateX(3px);border-color:#3a3d4e}
+
+  .entry-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;
+    justify-content:center;font-size:1rem;flex-shrink:0;margin-top:1px}
+  .entry.feat .entry-icon{background:rgba(34,197,94,.12)}
+  .entry.fix  .entry-icon{background:rgba(245,158,11,.12)}
+  .entry.chore .entry-icon{background:rgba(71,85,105,.2)}
+  .entry.docs  .entry-icon{background:rgba(59,130,246,.12)}
+  .entry.other .entry-icon{background:rgba(71,85,105,.2)}
+
+  .entry-body{flex:1;min-width:0}
+  .entry-msg{font-size:.9rem;font-weight:500;color:#ddd;line-height:1.4;margin-bottom:6px}
+  .entry-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+
+  .badge-kind{display:inline-block;padding:2px 8px;border-radius:20px;
+    font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
+  .badge-kind.feat{background:rgba(34,197,94,.15);color:#4ade80}
+  .badge-kind.fix{background:rgba(245,158,11,.15);color:#fbbf24}
+  .badge-kind.chore{background:rgba(71,85,105,.2);color:#94a3b8}
+  .badge-kind.docs{background:rgba(59,130,246,.15);color:#60a5fa}
+  .badge-kind.other{background:rgba(71,85,105,.2);color:#94a3b8}
+
+  .sha{font-family:'Courier New',monospace;font-size:.7rem;color:#444;
+    background:#13162a;padding:2px 7px;border-radius:4px}
+
+  /* STATS ROW */
+  .stats-row{max-width:760px;margin:0 auto 48px;padding:0 24px;
+    display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  @media(max-width:600px){.stats-row{grid-template-columns:1fr}}
+  .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;
+    padding:18px 20px;text-align:center}
+  .stat-val{font-size:1.8rem;font-weight:800;color:#fff;margin-bottom:4px}
+  .stat-val.green{color:var(--green)}
+  .stat-val.yellow{color:var(--yellow)}
+  .stat-val.blue{color:var(--blue)}
+  .stat-lbl{font-size:.72rem;color:#555;text-transform:uppercase;letter-spacing:.06em}
+
+  ::-webkit-scrollbar{width:6px}
+  ::-webkit-scrollbar-track{background:#0f1117}
+  ::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header>
+  <div class="header-left">
+    <a href="/" class="back-btn">← Dashboard</a>
+    <span style="font-size:.8rem;color:#555">Bodega</span>
+    <span style="font-size:.8rem;color:#333">/</span>
+    <span style="font-size:.8rem;color:#888">Changelog</span>
+  </div>
+</header>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">
+    <span>🚀</span>
+    <span>Release Notes</span>
+  </div>
+  <h1>What's <span>New</span> in Bodega</h1>
+  <p>Every improvement, fix, and new feature — tracked in one place.<br>We ship fast and we ship often.</p>
+</div>
+
+<!-- STATS -->
+{% set all_entries = grouped.values()|sum(start=[]) %}
+{% set feat_count  = all_entries|selectattr('kind','eq','feat') |list|length %}
+{% set fix_count   = all_entries|selectattr('kind','eq','fix')  |list|length %}
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-val blue">{{ grouped|length }}</div>
+    <div class="stat-lbl">Release Days</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val green">{{ feat_count }}</div>
+    <div class="stat-lbl">New Features</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-val yellow">{{ fix_count }}</div>
+    <div class="stat-lbl">Bug Fixes</div>
+  </div>
+</div>
+
+<!-- TIMELINE -->
+<div class="timeline">
+  {% for date_str, entries in grouped.items() %}
+  <div class="date-group">
+    <div class="date-label">
+      <div class="date-dot">{{ date_str[8:] }}</div>
+      <div class="date-text">
+        {% set months = {'01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun',
+                         '07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec'} %}
+        {{ months[date_str[5:7]] }} {{ date_str[0:4] }}
+        {% if loop.first %}<span style="margin-left:8px;background:rgba(99,102,241,.15);color:#818cf8;font-size:.68rem;padding:2px 8px;border-radius:10px;font-weight:700">LATEST</span>{% endif %}
+      </div>
+    </div>
+    <div class="entries">
+      {% for e in entries %}
+      <div class="entry {{ e.kind }}">
+        <div class="entry-icon">
+          {% if e.kind == 'feat' %}✨
+          {% elif e.kind == 'fix' %}🔧
+          {% elif e.kind == 'docs' %}📖
+          {% elif e.kind == 'chore' %}⚙️
+          {% else %}📌{% endif %}
+        </div>
+        <div class="entry-body">
+          <div class="entry-msg">{{ e.msg }}</div>
+          <div class="entry-meta">
+            <span class="badge-kind {{ e.kind }}">{{ e.kind }}</span>
+            <span class="sha">{{ e.sha }}</span>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+</body>
+</html>
