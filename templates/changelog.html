@@ -3,152 +3,313 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Changelog — Bodega</title>
+<title>Updates — Bodega</title>
 <style>
-  *{box-sizing:border-box;margin:0;padding:0}
-  body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
-  :root{
-    --green:#22c55e;--red:#ef4444;--blue:#3b82f6;
-    --yellow:#f59e0b;--purple:#a855f7;--card:#1a1d2e;--border:#2a2d3e;
-  }
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1117;color:#e0e0e0;min-height:100vh}
+:root{
+  --green:#22c55e;--red:#ef4444;--blue:#3b82f6;
+  --yellow:#f59e0b;--purple:#a855f7;--indigo:#6366f1;
+  --card:#1a1d2e;--border:#2a2d3e;--bg:#0f1117;
+}
 
-  /* HEADER */
-  header{background:#1a1d2e;border-bottom:1px solid var(--border);
-    padding:14px 24px;display:flex;align-items:center;gap:16px;position:sticky;top:0;z-index:50}
-  .header-left{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .back-btn{font-size:.8rem;color:#6366f1;text-decoration:none;padding:4px 10px;
-    border:1px solid #6366f1;border-radius:6px;transition:.15s}
-  .back-btn:hover{background:#6366f1;color:#fff}
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
 
-  /* HERO */
-  .hero{max-width:760px;margin:48px auto 0;padding:0 24px;text-align:center}
-  .hero-badge{display:inline-flex;align-items:center;gap:6px;
-    background:rgba(99,102,241,.12);border:1px solid rgba(99,102,241,.3);
-    color:#818cf8;font-size:.75rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
-    padding:4px 12px;border-radius:20px;margin-bottom:20px}
-  .hero h1{font-size:2.2rem;font-weight:800;color:#fff;line-height:1.15;margin-bottom:12px}
-  .hero h1 span{background:linear-gradient(135deg,#6366f1,#a855f7);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-  .hero p{color:#666;font-size:.95rem;line-height:1.6}
+/* ── HEADER ── */
+header{background:#1a1d2e;border-bottom:1px solid var(--border);
+  padding:14px 24px;display:flex;align-items:center;gap:12px;
+  position:sticky;top:0;z-index:50}
+.back-btn{font-size:.8rem;color:var(--indigo);text-decoration:none;
+  padding:4px 10px;border:1px solid var(--indigo);border-radius:6px;transition:.15s}
+.back-btn:hover{background:var(--indigo);color:#fff}
+.breadcrumb{display:flex;align-items:center;gap:6px;font-size:.8rem}
+.breadcrumb span{color:#444}
+.breadcrumb .cur{color:#888}
 
-  /* TIMELINE */
-  .timeline{max-width:760px;margin:48px auto 80px;padding:0 24px;position:relative}
-  .timeline::before{content:'';position:absolute;left:calc(24px + 15px);top:0;bottom:0;
-    width:2px;background:linear-gradient(to bottom,#6366f1,transparent);opacity:.3}
+/* ── HERO ── */
+.hero{max-width:900px;margin:56px auto 0;padding:0 24px;text-align:center}
+.hero-badge{display:inline-flex;align-items:center;gap:6px;
+  background:rgba(99,102,241,.1);border:1px solid rgba(99,102,241,.25);
+  color:#818cf8;font-size:.72rem;font-weight:700;letter-spacing:.08em;
+  text-transform:uppercase;padding:5px 14px;border-radius:20px;margin-bottom:24px}
+.hero h1{font-size:2.6rem;font-weight:900;color:#fff;line-height:1.1;margin-bottom:14px}
+.hero h1 .grad{background:linear-gradient(135deg,#6366f1 0%,#a855f7 50%,#ec4899 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero p{color:#555;font-size:.95rem;line-height:1.7;max-width:520px;margin:0 auto}
 
-  /* DATE GROUP */
-  .date-group{margin-bottom:40px;position:relative}
-  .date-label{display:flex;align-items:center;gap:12px;margin-bottom:20px;position:relative}
-  .date-dot{width:32px;height:32px;border-radius:50%;background:#1a1d2e;
-    border:2px solid #6366f1;display:flex;align-items:center;justify-content:center;
-    font-size:.65rem;color:#6366f1;font-weight:700;flex-shrink:0;position:relative;z-index:2}
-  .date-text{font-size:.8rem;font-weight:600;color:#888;letter-spacing:.06em;text-transform:uppercase}
+/* ── STAT GRID ── */
+.stats-section{max-width:900px;margin:48px auto 0;padding:0 24px}
+.stats-section h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;
+  color:#444;margin-bottom:16px;font-weight:600}
+.stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:14px}
+.stats-grid-2{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:48px}
+@media(max-width:800px){.stats-grid,.stats-grid-2{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:480px){.stats-grid,.stats-grid-2{grid-template-columns:1fr 1fr}}
 
-  /* ENTRY */
-  .entries{padding-left:44px;display:flex;flex-direction:column;gap:10px}
-  .entry{background:var(--card);border:1px solid var(--border);border-radius:12px;
-    padding:16px 18px;display:flex;align-items:flex-start;gap:14px;
-    transition:transform .15s,border-color .15s;position:relative;overflow:hidden}
-  .entry::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px}
-  .entry.feat::before{background:var(--green)}
-  .entry.fix::before{background:var(--yellow)}
-  .entry.chore::before{background:#475569}
-  .entry.docs::before{background:var(--blue)}
-  .entry.other::before{background:#475569}
-  .entry:hover{transform:translateX(3px);border-color:#3a3d4e}
+.stat{background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:20px;position:relative;overflow:hidden;transition:border-color .2s,transform .2s}
+.stat:hover{border-color:#3a3d4e;transform:translateY(-2px)}
+.stat::after{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.stat.blue::after{background:linear-gradient(90deg,var(--blue),#60a5fa)}
+.stat.green::after{background:linear-gradient(90deg,var(--green),#4ade80)}
+.stat.yellow::after{background:linear-gradient(90deg,var(--yellow),#fcd34d)}
+.stat.purple::after{background:linear-gradient(90deg,var(--purple),#c084fc)}
+.stat.indigo::after{background:linear-gradient(90deg,var(--indigo),#818cf8)}
+.stat.red::after{background:linear-gradient(90deg,var(--red),#f87171)}
+.stat.teal::after{background:linear-gradient(90deg,#14b8a6,#2dd4bf)}
+.stat.pink::after{background:linear-gradient(90deg,#ec4899,#f472b6)}
+.stat-icon{font-size:1.4rem;margin-bottom:10px;display:block}
+.stat-val{font-size:1.75rem;font-weight:800;color:#fff;line-height:1;margin-bottom:5px}
+.stat-val.sm{font-size:1.2rem}
+.stat-lbl{font-size:.72rem;color:#555;text-transform:uppercase;letter-spacing:.06em;line-height:1.4}
+.stat-sub{font-size:.7rem;color:#444;margin-top:4px}
 
-  .entry-icon{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;
-    justify-content:center;font-size:1rem;flex-shrink:0;margin-top:1px}
-  .entry.feat .entry-icon{background:rgba(34,197,94,.12)}
-  .entry.fix  .entry-icon{background:rgba(245,158,11,.12)}
-  .entry.chore .entry-icon{background:rgba(71,85,105,.2)}
-  .entry.docs  .entry-icon{background:rgba(59,130,246,.12)}
-  .entry.other .entry-icon{background:rgba(71,85,105,.2)}
+/* ── TOP FILES ── */
+.topfiles-section{max-width:900px;margin:0 auto 48px;padding:0 24px}
+.topfiles-section h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;
+  color:#444;margin-bottom:14px;font-weight:600}
+.topfiles{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+@media(max-width:600px){.topfiles{grid-template-columns:1fr}}
+.topfile{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:14px 16px;display:flex;align-items:center;gap:12px;transition:.2s}
+.topfile:hover{border-color:#3a3d4e}
+.topfile-rank{font-size:1.1rem;font-weight:800;color:#333;width:20px;flex-shrink:0}
+.topfile-info{flex:1;min-width:0}
+.topfile-name{font-size:.82rem;font-weight:600;color:#ccc;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topfile-changes{font-size:.7rem;color:#555;margin-top:2px}
+.topfile-bar-wrap{width:60px;flex-shrink:0}
+.topfile-bar-bg{background:#0f1117;border-radius:3px;height:5px;overflow:hidden}
+.topfile-bar{height:100%;border-radius:3px;background:linear-gradient(90deg,var(--indigo),var(--purple))}
 
-  .entry-body{flex:1;min-width:0}
-  .entry-msg{font-size:.9rem;font-weight:500;color:#ddd;line-height:1.4;margin-bottom:6px}
-  .entry-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+/* ── BUILT WITH ── */
+.built-section{max-width:900px;margin:0 auto 56px;padding:0 24px}
+.built-section h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;
+  color:#444;margin-bottom:14px;font-weight:600}
+.built-chips{display:flex;gap:8px;flex-wrap:wrap}
+.chip{display:inline-flex;align-items:center;gap:6px;
+  background:var(--card);border:1px solid var(--border);border-radius:20px;
+  padding:6px 14px;font-size:.78rem;font-weight:600;color:#aaa;transition:.2s}
+.chip:hover{border-color:#3a3d4e;color:#fff}
+.chip .dot{width:7px;height:7px;border-radius:50%}
+.chip .dot.py{background:#3b82f6}
+.chip .dot.fast{background:#22c55e}
+.chip .dot.sq{background:#f59e0b}
+.chip .dot.tg{background:#38bdf8}
+.chip .dot.ai{background:#a855f7}
+.chip .dot.rw{background:#ef4444}
 
-  .badge-kind{display:inline-block;padding:2px 8px;border-radius:20px;
-    font-size:.68rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase}
-  .badge-kind.feat{background:rgba(34,197,94,.15);color:#4ade80}
-  .badge-kind.fix{background:rgba(245,158,11,.15);color:#fbbf24}
-  .badge-kind.chore{background:rgba(71,85,105,.2);color:#94a3b8}
-  .badge-kind.docs{background:rgba(59,130,246,.15);color:#60a5fa}
-  .badge-kind.other{background:rgba(71,85,105,.2);color:#94a3b8}
+/* ── DIVIDER ── */
+.divider{max-width:900px;margin:0 auto 48px;padding:0 24px}
+.divider-line{border:none;border-top:1px solid var(--border)}
 
-  .sha{font-family:'Courier New',monospace;font-size:.7rem;color:#444;
-    background:#13162a;padding:2px 7px;border-radius:4px}
+/* ── TIMELINE HEADER ── */
+.timeline-header{max-width:900px;margin:0 auto 24px;padding:0 24px;
+  display:flex;align-items:center;justify-content:space-between}
+.timeline-header h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.1em;
+  color:#444;font-weight:600}
+.legend{display:flex;gap:12px;flex-wrap:wrap}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:.72rem;color:#555}
+.legend-dot{width:8px;height:8px;border-radius:2px}
+.legend-dot.feat{background:var(--green)}
+.legend-dot.fix{background:var(--yellow)}
+.legend-dot.chore{background:#475569}
+.legend-dot.docs{background:var(--blue)}
 
-  /* STATS ROW */
-  .stats-row{max-width:760px;margin:0 auto 48px;padding:0 24px;
-    display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-  @media(max-width:600px){.stats-row{grid-template-columns:1fr}}
-  .stat-card{background:var(--card);border:1px solid var(--border);border-radius:12px;
-    padding:18px 20px;text-align:center}
-  .stat-val{font-size:1.8rem;font-weight:800;color:#fff;margin-bottom:4px}
-  .stat-val.green{color:var(--green)}
-  .stat-val.yellow{color:var(--yellow)}
-  .stat-val.blue{color:var(--blue)}
-  .stat-lbl{font-size:.72rem;color:#555;text-transform:uppercase;letter-spacing:.06em}
+/* ── TIMELINE ── */
+.timeline{max-width:900px;margin:0 auto 80px;padding:0 24px;position:relative}
+.timeline::before{content:'';position:absolute;left:calc(24px + 15px);top:0;bottom:0;
+  width:2px;background:linear-gradient(to bottom,rgba(99,102,241,.4),transparent);pointer-events:none}
 
-  ::-webkit-scrollbar{width:6px}
-  ::-webkit-scrollbar-track{background:#0f1117}
-  ::-webkit-scrollbar-thumb{background:#2a2d3e;border-radius:3px}
+.date-group{margin-bottom:36px;position:relative}
+.date-label{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.date-dot{width:32px;height:32px;border-radius:50%;background:#1a1d2e;
+  border:2px solid var(--indigo);display:flex;align-items:center;justify-content:center;
+  font-size:.62rem;color:var(--indigo);font-weight:800;flex-shrink:0;position:relative;z-index:2;
+  box-shadow:0 0 0 4px rgba(99,102,241,.08)}
+.date-text{font-size:.78rem;font-weight:700;color:#777;letter-spacing:.06em;text-transform:uppercase;
+  display:flex;align-items:center;gap:8px}
+.latest-badge{background:linear-gradient(135deg,#6366f1,#a855f7);color:#fff;
+  font-size:.65rem;padding:2px 9px;border-radius:10px;font-weight:700;letter-spacing:.04em}
+
+.entries{padding-left:44px;display:flex;flex-direction:column;gap:8px}
+.entry{background:var(--card);border:1px solid var(--border);border-radius:12px;
+  padding:14px 16px;display:flex;align-items:flex-start;gap:12px;
+  transition:transform .15s,border-color .15s,box-shadow .15s;position:relative;overflow:hidden}
+.entry::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;border-radius:0 2px 2px 0}
+.entry.feat::before{background:var(--green)}
+.entry.fix::before{background:var(--yellow)}
+.entry.chore::before{background:#334155}
+.entry.docs::before{background:var(--blue)}
+.entry.other::before{background:#334155}
+.entry:hover{transform:translateX(4px);border-color:#3a3d4e;box-shadow:0 4px 20px rgba(0,0,0,.3)}
+
+.entry-icon{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;
+  justify-content:center;font-size:.95rem;flex-shrink:0}
+.entry.feat .entry-icon{background:rgba(34,197,94,.1)}
+.entry.fix  .entry-icon{background:rgba(245,158,11,.1)}
+.entry.chore .entry-icon{background:rgba(51,65,85,.3)}
+.entry.docs  .entry-icon{background:rgba(59,130,246,.1)}
+.entry.other .entry-icon{background:rgba(51,65,85,.3)}
+
+.entry-body{flex:1;min-width:0}
+.entry-msg{font-size:.875rem;font-weight:500;color:#d0d0d0;line-height:1.45;margin-bottom:7px}
+.entry-meta{display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.badge-kind{display:inline-block;padding:2px 8px;border-radius:20px;
+  font-size:.65rem;font-weight:700;letter-spacing:.05em;text-transform:uppercase}
+.badge-kind.feat{background:rgba(34,197,94,.12);color:#4ade80}
+.badge-kind.fix{background:rgba(245,158,11,.12);color:#fbbf24}
+.badge-kind.chore{background:rgba(71,85,105,.2);color:#94a3b8}
+.badge-kind.docs{background:rgba(59,130,246,.12);color:#60a5fa}
+.badge-kind.other{background:rgba(71,85,105,.2);color:#94a3b8}
+.sha{font-family:'Courier New',monospace;font-size:.68rem;color:#3a3d4e;
+  background:#13162a;padding:2px 7px;border-radius:4px;border:1px solid #1e2133}
 </style>
 </head>
 <body>
 
 <!-- HEADER -->
 <header>
-  <div class="header-left">
-    <a href="/" class="back-btn">← Dashboard</a>
-    <span style="font-size:.8rem;color:#555">Bodega</span>
-    <span style="font-size:.8rem;color:#333">/</span>
-    <span style="font-size:.8rem;color:#888">Changelog</span>
+  <a href="/" class="back-btn">← Dashboard</a>
+  <div class="breadcrumb">
+    <span>Bodega</span>
+    <span>/</span>
+    <span class="cur">Updates</span>
   </div>
 </header>
 
 <!-- HERO -->
 <div class="hero">
-  <div class="hero-badge">
-    <span>🚀</span>
-    <span>Release Notes</span>
-  </div>
-  <h1>What's <span>New</span> in Bodega</h1>
-  <p>Every improvement, fix, and new feature — tracked in one place.<br>We ship fast and we ship often.</p>
+  <div class="hero-badge">🚀 &nbsp;Release Notes &amp; Project Stats</div>
+  <h1>Everything that makes<br><span class="grad">Bodega better</span></h1>
+  <p>Every feature shipped, every bug squashed, every line written — tracked transparently. Built fast, built to last.</p>
 </div>
 
-<!-- STATS -->
-{% set all_entries = grouped.values()|sum(start=[]) %}
-{% set feat_count  = all_entries|selectattr('kind','eq','feat') |list|length %}
-{% set fix_count   = all_entries|selectattr('kind','eq','fix')  |list|length %}
-<div class="stats-row">
-  <div class="stat-card">
-    <div class="stat-val blue">{{ grouped|length }}</div>
-    <div class="stat-lbl">Release Days</div>
+<!-- STATS ROW 1 — commits & time -->
+<div class="stats-section">
+  <h2>Development Overview</h2>
+  <div class="stats-grid">
+    <div class="stat blue">
+      <span class="stat-icon">📅</span>
+      <div class="stat-val">{{ project_age_days }}</div>
+      <div class="stat-lbl">Days in Development</div>
+      <div class="stat-sub">Since {{ first_date }}</div>
+    </div>
+    <div class="stat green">
+      <span class="stat-icon">✨</span>
+      <div class="stat-val">{{ total_commits }}</div>
+      <div class="stat-lbl">Total Commits</div>
+      <div class="stat-sub">Avg every {{ avg_days_per_commit }} days</div>
+    </div>
+    <div class="stat yellow">
+      <span class="stat-icon">🔥</span>
+      <div class="stat-val">{{ active_days }}</div>
+      <div class="stat-lbl">Active Coding Days</div>
+      <div class="stat-sub">Across {{ project_age_days }} day span</div>
+    </div>
+    <div class="stat purple">
+      <span class="stat-icon">⏱️</span>
+      <div class="stat-val">~{{ est_dev_hours }}h</div>
+      <div class="stat-lbl">Est. Dev Hours</div>
+      <div class="stat-sub">~45 min per commit avg</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="stat-val green">{{ feat_count }}</div>
-    <div class="stat-lbl">New Features</div>
+
+  <!-- STATS ROW 2 — code & AI -->
+  <div class="stats-grid-2">
+    <div class="stat indigo">
+      <span class="stat-icon">💻</span>
+      <div class="stat-val">{{ "{:,}".format(total_loc) }}</div>
+      <div class="stat-lbl">Lines of Code</div>
+      <div class="stat-sub">{{ "{:,}".format(py_lines) }} py · {{ "{:,}".format(html_lines) }} html</div>
+    </div>
+    <div class="stat green">
+      <span class="stat-icon">➕</span>
+      <div class="stat-val">{{ "{:,}".format(total_added) }}</div>
+      <div class="stat-lbl">Lines Added</div>
+      <div class="stat-sub">−{{ "{:,}".format(total_deleted) }} removed</div>
+    </div>
+    <div class="stat teal">
+      <span class="stat-icon">🤖</span>
+      <div class="stat-val">{% if ai_tokens %}{{ "{:,}".format(ai_tokens) }}{% else %}—{% endif %}</div>
+      <div class="stat-lbl">AI Tokens Used</div>
+      <div class="stat-sub">{% if ai_calls %}{{ ai_calls }} receipt parses{% else %}Receipt OCR calls{% endif %}</div>
+    </div>
+    <div class="stat pink">
+      <span class="stat-icon">🏆</span>
+      <div class="stat-val sm">{{ biggest_day[5:] if biggest_day else "—" }}</div>
+      <div class="stat-lbl">Biggest Release Day</div>
+      <div class="stat-sub">{{ "{:,}".format(biggest_lines) }} lines changed</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="stat-val yellow">{{ fix_count }}</div>
-    <div class="stat-lbl">Bug Fixes</div>
+</div>
+
+<!-- TOP FILES -->
+{% if top_files %}
+<div class="topfiles-section">
+  <h2>Most Evolved Files</h2>
+  <div class="topfiles">
+    {% set max_changes = top_files[0][1] %}
+    {% for fname, changes in top_files %}
+    <div class="topfile">
+      <div class="topfile-rank">#{{ loop.index }}</div>
+      <div class="topfile-info">
+        <div class="topfile-name">{{ fname.split('/')[-1] }}</div>
+        <div class="topfile-changes">{{ "{:,}".format(changes) }} lines touched</div>
+      </div>
+      <div class="topfile-bar-wrap">
+        <div class="topfile-bar-bg">
+          <div class="topfile-bar" style="width:{{ (changes / max_changes * 100)|round|int }}%"></div>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- BUILT WITH -->
+<div class="built-section">
+  <h2>Built With</h2>
+  <div class="built-chips">
+    <span class="chip"><span class="dot py"></span> Python 3.11</span>
+    <span class="chip"><span class="dot fast"></span> FastAPI</span>
+    <span class="chip"><span class="dot sq"></span> SQLite</span>
+    <span class="chip"><span class="dot tg"></span> Telegram Bot API</span>
+    <span class="chip"><span class="dot ai"></span> Claude AI (Haiku)</span>
+    <span class="chip"><span class="dot rw"></span> Railway</span>
+    <span class="chip"><span class="dot py"></span> Jinja2</span>
+    <span class="chip"><span class="dot fast"></span> Chart.js</span>
+  </div>
+</div>
+
+<div class="divider"><hr class="divider-line"></div>
+
+<!-- TIMELINE HEADER -->
+<div class="timeline-header">
+  <h2>Full Changelog</h2>
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot feat"></div> Feature</div>
+    <div class="legend-item"><div class="legend-dot fix"></div> Fix</div>
+    <div class="legend-item"><div class="legend-dot chore"></div> Chore</div>
+    <div class="legend-item"><div class="legend-dot docs"></div> Docs</div>
   </div>
 </div>
 
 <!-- TIMELINE -->
 <div class="timeline">
+  {% set months = {'01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun',
+                   '07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec'} %}
   {% for date_str, entries in grouped.items() %}
   <div class="date-group">
     <div class="date-label">
       <div class="date-dot">{{ date_str[8:] }}</div>
       <div class="date-text">
-        {% set months = {'01':'Jan','02':'Feb','03':'Mar','04':'Apr','05':'May','06':'Jun',
-                         '07':'Jul','08':'Aug','09':'Sep','10':'Oct','11':'Nov','12':'Dec'} %}
         {{ months[date_str[5:7]] }} {{ date_str[0:4] }}
-        {% if loop.first %}<span style="margin-left:8px;background:rgba(99,102,241,.15);color:#818cf8;font-size:.68rem;padding:2px 8px;border-radius:10px;font-weight:700">LATEST</span>{% endif %}
+        {% if loop.first %}<span class="latest-badge">LATEST</span>{% endif %}
       </div>
     </div>
     <div class="entries">
